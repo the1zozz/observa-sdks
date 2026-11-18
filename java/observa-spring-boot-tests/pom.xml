@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.github.the1zozz.observa-sdks</groupId>
+        <artifactId>observa-java-sdks</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+
+    <!-- Not published. Runs the starter's own tests against the built starter jar on Spring Boot 3.5 (Java 17-20) or 4.1
+         (Java 21 and later), so the one jar is proven on every Boot it claims. Another version:
+         mvn verify -Dboot.test.version=3.5.16 -->
+    <artifactId>observa-spring-boot-tests</artifactId>
+    <name>Observa Spring Boot starter on Boot 3 and 4</name>
+
+    <properties>
+        <maven.compiler.release>17</maven.compiler.release>
+        <boot.test.version>4.1.2</boot.test.version>
+        <maven.deploy.skip>true</maven.deploy.skip>
+        <maven.install.skip>true</maven.install.skip>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.github.the1zozz.observa-sdks</groupId>
+            <artifactId>observa-spring-boot-starter</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-autoconfigure</artifactId>
+            <version>${boot.test.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-test</artifactId>
+            <version>${boot.test.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <version>3.26.3</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <testSourceDirectory>../observa-spring-boot-starter/src/test/java</testSourceDirectory>
+    </build>
+
+    <profiles>
+        <profile>
+            <id>boot3</id>
+            <activation>
+                <jdk>[17,21)</jdk>
+            </activation>
+            <properties>
+                <boot.test.version>3.5.16</boot.test.version>
+            </properties>
+        </profile>
+    </profiles>
+</project>

@@ -1,0 +1,45 @@
+# The Java SDK and its Spring Boot starter are one library for Java 8, 11, 17 and 25 (Java 8 bytecode), so their tests
+# run on each; the starter on Spring Boot 2.7 (Java 8, 11), 3.5 (Java 17) and 4.1 (Java 25).
+name: Java SDK
+
+on:
+  push:
+    branches: [main]
+    paths: ["java/**", "CONTRACT.md", ".github/workflows/java.yml"]
+  pull_request:
+    paths: ["java/**", "CONTRACT.md", ".github/workflows/java.yml"]
+
+concurrency:
+  group: sdk-java-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: java ${{ matrix.java }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        java: ["8", "11", "17", "25"]
+    defaults:
+      run:
+        working-directory: java
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+          cache: maven
+      - name: Build and test
+        run: mvn -B verify
+      - name: Keep the test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-java-${{ matrix.java }}-reports
+          path: java/**/target/surefire-reports
