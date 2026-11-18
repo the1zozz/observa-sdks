@@ -1,7 +1,8 @@
 # JitPack builds a tag of this repository on request and serves it as com.github.the1zozz.observa-sdks:<module>:<tag>.
 # The Java SDKs are in java/: build them there, with the tag as their version, and install them (with sources and
-# Javadoc) where JitPack collects them.
+# Javadoc) where JitPack collects them. The Maven wrapper (java/mvnw) brings Maven 3.9.9: JitPack's own is older than the
+# plugins need.
 jdk:
   - openjdk17
 install:
-  - cd java && mvn -B -q versions:set -DnewVersion="$VERSION" -DgenerateBackupPoms=false && mvn -B install -DskipTests -Prelease
+  - cd java && ./mvnw -B -q versions:set -DnewVersion="$VERSION" -DgenerateBackupPoms=false && ./mvnw -B install -DskipTests -Prelease
