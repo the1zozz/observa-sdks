@@ -6,7 +6,7 @@
     <parent>
         <groupId>com.github.the1zozz.observa-sdks</groupId>
         <artifactId>observa-java-sdks</artifactId>
-        <version>0.1.0-SNAPSHOT</version>
+        <version>0.2.0-SNAPSHOT</version>
     </parent>
 
     <!-- One jar for Spring Boot 2.7, 3 and 4: Java 8 bytecode, built against Boot 2.7's API (which 3 and 4 kept),
@@ -26,6 +26,11 @@
             <artifactId>observa-java</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <dependency>
+            <groupId>com.github.the1zozz.observa-sdks</groupId>
+            <artifactId>observa-logback</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <!-- The application brings its own Spring Boot; the starter never chooses its version. -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -34,6 +39,38 @@
             <optional>true</optional>
         </dependency>
 
+        <!-- Used only when the application has them; never brought in by the starter. -->
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+            <version>1.2.12</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>javax.servlet</groupId>
+            <artifactId>javax.servlet-api</artifactId>
+            <version>4.0.1</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>jakarta.servlet</groupId>
+            <artifactId>jakarta.servlet-api</artifactId>
+            <version>5.0.0</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-core</artifactId>
+            <version>5.7.11</version>
+            <optional>true</optional>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+            <version>${spring-boot.version}</version>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-test</artifactId>

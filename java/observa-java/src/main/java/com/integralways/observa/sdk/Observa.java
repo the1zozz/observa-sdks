@@ -19,6 +19,8 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.Supplier;
+import java.lang.ref.WeakReference;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Pattern;
@@ -71,6 +73,9 @@ public final class Observa implements AutoCloseable {
         private boolean shutdownHook = true;
         private Transport transport;
         private Clock clock = Clock.systemUTC();
+        private String service = System.getenv("OBSERVA_SERVICE");
+        private int maxErrorsPerMinute = 60;
+        private Supplier<String> userResolver;
 
         private Builder() {
         }
@@ -159,6 +164,27 @@ public final class Observa implements AutoCloseable {
             return this;
         }
 
+        /** Your application's name in errors, e.g. booking-api. Default: {@code OBSERVA_SERVICE}. */
+        public Builder service(String service) {
+            this.service = service;
+            return this;
+        }
+
+        /** At most this many errors are sent per minute (default 60), so an error loop cannot flood anything. */
+        public Builder maxErrorsPerMinute(int maxErrorsPerMinute) {
+            this.maxErrorsPerMinute = maxErrorsPerMinute;
+            return this;
+        }
+
+        /**
+         * Who the person is when an error names none: called on the thread that reports it, e.g. to read the
+         * signed-in user of the current request. The Spring Boot starter sets it for you.
+         */
+        public Builder userResolver(Supplier<String> userResolver) {
+            this.userResolver = userResolver;
+            return this;
+        }
+
         /**
          * The SDK. A missing or wrong key never stops your application: the SDK logs why and sends nothing.
          */
@@ -182,6 +208,20 @@ public final class Observa implements AutoCloseable {
     private final Transport transport;
     private final Clock clock;
     private final Thread hook;
+    private final String service;
+    private final int maxErrorsPerMinute;
+    private final Supplier<String> userResolver;
+    private long errorWindowStart;
+    private int errorsInWindow;
+    private boolean errorLimitLogged;
+    /** The last exception reported on each thread: a log and the web filter often report the same one. */
+    private final ThreadLocal<WeakReference<Throwable>> lastError = new ThreadLocal<>();
+
+    /** What a web integration knows about the request being handled on this thread: added to its errors. */
+    private static final ThreadLocal<Map<String, Object>> REQUEST = new ThreadLocal<>();
+
+    /** The application's Observa, for integrations made by other frameworks (log appenders): the latest one built. */
+    private static volatile Observa current;
 
     private final Object lock = new Object();
     private final ArrayDeque<String> queue = new ArrayDeque<>();
@@ -214,6 +254,9 @@ public final class Observa implements AutoCloseable {
         this.retryInitialMillis = Math.max(1, millis(b.retryInitialDelay, 1000));
         this.retryMaxMillis = Math.max(retryInitialMillis, millis(b.retryMaxDelay, 60_000));
         this.clock = b.clock == null ? Clock.systemUTC() : b.clock;
+        this.service = b.service == null || b.service.trim().isEmpty() ? null : b.service.trim();
+        this.maxErrorsPerMinute = Math.max(0, b.maxErrorsPerMinute);
+        this.userResolver = b.userResolver;
         this.transport = b.transport != null ? b.transport : new HttpTransport((int) Math.max(1000, millis(b.requestTimeout, 10_000)));
         String endpoint = b.endpoint == null ? "" : b.endpoint.trim();
         while (endpoint.endsWith("/")) {
@@ -254,6 +297,16 @@ public final class Observa implements AutoCloseable {
             this.worker = null;
             this.hook = null;
         }
+        current = this;
+    }
+
+    /**
+     * The application's Observa: the one built last and not closed, or null. Logging integrations, which the logging
+     * framework creates, use it to send errors.
+     */
+    public static Observa current() {
+        Observa o = current;
+        return o == null || o.isClosed() ? null : o;
     }
 
     // ------------------------------------------------------------------ the API
@@ -322,6 +375,123 @@ public final class Observa implements AutoCloseable {
         track(Event.of("$consent.update").user(userId).properties(consent.body()));
     }
 
+    // ------------------------------------------------------------------ errors
+
+    /** Records an error you caught, as an {@code $error} event; the person comes from the user resolver, if any. */
+    public void error(Throwable error) {
+        error(ErrorReport.of(error).handled(true));
+    }
+
+    /** Records an error that happened to the person {@code userId}. */
+    public void error(String userId, Throwable error) {
+        error(ErrorReport.of(error).user(userId).handled(true));
+    }
+
+    /**
+     * Records an error with every detail (the SDK contract, §8). At most {@code maxErrorsPerMinute} are sent; the same
+     * exception reported twice on one thread (by a log and by the web filter, say) is sent once. An error that names
+     * no person goes to the person the user resolver gives, or else to the service itself ({@code service:<name>}).
+     */
+    public void error(ErrorReport report) {
+        try {
+            if (!active || report == null || isClosed()) {
+                return;
+            }
+            if (report.logger != null && report.logger.startsWith(LOGGER)) {
+                return; // never our own errors: they would report themselves forever
+            }
+            if (report.throwable != null) {
+                WeakReference<Throwable> last = lastError.get();
+                if (last != null && last.get() == report.throwable) {
+                    return;
+                }
+                lastError.set(new WeakReference<>(report.throwable));
+            }
+            if (!allowError()) {
+                return;
+            }
+            Map<String, Object> body = report.body(service);
+            Map<String, Object> request = REQUEST.get();
+            if (request != null && !body.containsKey("http")) {
+                body.put("http", request);
+            }
+            Event event = Event.of("$error").properties(body);
+            String user = report.userId;
+            if (blank(user) && blank(report.anonymousId) && userResolver != null) {
+                try {
+                    user = userResolver.get();
+                } catch (RuntimeException e) {
+                    log.log(Level.FINE, "Observa: the user resolver failed", e);
+                }
+            }
+            if (!blank(user)) {
+                event.user(user);
+            }
+            if (!blank(report.anonymousId)) {
+                event.anonymous(report.anonymousId);
+            }
+            if (blank(user) && blank(report.anonymousId)) {
+                event.anonymous("service:" + (service == null ? "java" : service));
+            }
+            if (!blank(report.sessionId)) {
+                event.session(report.sessionId);
+            }
+            record(event);
+        } catch (RuntimeException e) {
+            log.log(Level.FINE, "Observa: error not recorded", e);
+        }
+    }
+
+    /**
+     * For web integrations: the request this thread is handling, e.g. {@code {"method": "POST", "path": "/bookings"}}.
+     * Errors reported on this thread until {@link #clearRequest()} carry it as {@code http}.
+     */
+    public static void setRequest(Map<String, Object> request) {
+        if (request == null) {
+            REQUEST.remove();
+        } else {
+            REQUEST.set(request);
+        }
+    }
+
+    /** For web integrations: the request is over. */
+    public static void clearRequest() {
+        REQUEST.remove();
+    }
+
+    /** Within the per-minute limit; past it the error is counted as dropped. */
+    private boolean allowError() {
+        synchronized (lock) {
+            long now = System.currentTimeMillis();
+            if (now - errorWindowStart >= 60_000) {
+                errorWindowStart = now;
+                errorsInWindow = 0;
+            }
+            if (errorsInWindow >= maxErrorsPerMinute) {
+                dropped++;
+                if (!errorLimitLogged) {
+                    errorLimitLogged = true;
+                    log.warning("Observa: more than " + maxErrorsPerMinute + " errors in a minute; the rest of this minute's"
+                            + " are not sent (counted as dropped). Raise maxErrorsPerMinute if that is expected.");
+                }
+                return false;
+            }
+            errorsInWindow++;
+            return true;
+        }
+    }
+
+    private boolean isClosed() {
+        synchronized (lock) {
+            return closed;
+        }
+    }
+
+    /** The name errors carry as their service, or null. */
+    public String service() {
+        return service;
+    }
+
     /** Sends what is queued now and waits until it is sent, for at most 10 seconds; true if all of it was. */
     public boolean flush() {
         return flush(Duration.ofSeconds(10));
@@ -366,6 +536,9 @@ public final class Observa implements AutoCloseable {
                 return;
             }
             closed = true;
+        }
+        if (current == this) {
+            current = null;
         }
         flush(Duration.ofMillis(shutdownTimeoutMillis));
         synchronized (lock) {

@@ -8,6 +8,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.core.env.Environment;
 
 /**
  * One {@link Observa} for the application, built from the {@code observa.*} properties. Inject it anywhere:
@@ -33,7 +34,8 @@ public class ObservaAutoConfiguration {
 
     @Bean(destroyMethod = "close")
     @ConditionalOnMissingBean
-    public Observa observa(ObservaProperties properties, ObjectProvider<ObservaBuilderCustomizer> customizers) {
+    public Observa observa(ObservaProperties properties, ObjectProvider<ObservaBuilderCustomizer> customizers,
+                           ObjectProvider<ObservaUserResolver> users, Environment environment) {
         Observa.Builder builder = Observa.builder()
                 .enabled(properties.isEnabled())
                 .debug(properties.isDebug())
@@ -42,8 +44,18 @@ public class ObservaAutoConfiguration {
                 .maxQueueSize(properties.getMaxQueueSize())
                 .requestTimeout(properties.getRequestTimeout())
                 .shutdownTimeout(properties.getShutdownTimeout())
+                .maxErrorsPerMinute(properties.getErrors().isEnabled() ? properties.getErrors().getMaxPerMinute() : 0)
+                .userResolver(() -> {
+                    ObservaUserResolver resolver = users.getIfAvailable();
+                    return resolver == null ? null : resolver.currentUserId();
+                })
                 // Spring closes the bean with the context, in order, before the JVM stops.
                 .shutdownHook(false);
+        String service = hasText(properties.getService()) ? properties.getService()
+                : environment.getProperty("spring.application.name");
+        if (hasText(service)) {
+            builder.service(service);
+        }
         if (hasText(properties.getKey())) {
             builder.key(properties.getKey());
         }

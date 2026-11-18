@@ -108,7 +108,7 @@ There is no limit on the number of retries: the batch waits while newer events q
 
 ## 8. Errors (`$error`)
 
-Planned. An SDK that offers error capture sends each error as an event of type `$error`:
+The Java SDK does this from 0.2.0. An SDK that offers error capture sends each error as an event of type `$error`:
 
 ```json
 { "type": "$error",
@@ -118,8 +118,14 @@ Planned. An SDK that offers error capture sends each error as an event of type `
             "logger": "com.acme.payments.PaymentService",    // server SDKs
             "level": "ERROR",
             "service": "booking-api",                        // the application's name
-            "requestId": "…", "handled": true } }
+            "requestId": "…", "handled": true,
+            "fingerprint": "3f9a…",                          // the same for the same failure at the same place
+            "http": { "method": "POST", "path": "/bookings", "status": 500 } } }   // when it happened in a request
 ```
+
+`fingerprint` groups errors: it is computed from the kind and the top frames of the stack, without line numbers, so
+the same failure keeps its group across releases. An error that names no person, such as one at startup, is sent with
+`anonymousId` set to `service:<service>`.
 
 It is linked to the person the same way as other events (the user id from the log's context, or the visitor the client
 SDK passed to the server, §9). Error capture is on by default for uncaught errors and for `ERROR` logs; it never sends

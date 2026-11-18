@@ -38,6 +38,60 @@ public class ObservaProperties {
     /** How long the SDK keeps sending when the application stops. */
     private Duration shutdownTimeout = Duration.ofSeconds(5);
 
+    /** The application's name in its errors, e.g. booking-api. Default: spring.application.name. */
+    private String service;
+
+    /** Errors: ERROR logs, exceptions and failed requests, sent as $error events. */
+    private final Errors errors = new Errors();
+
+    public static class Errors {
+
+        /** Send ERROR logs and server errors of web requests to Observa. */
+        private boolean enabled = true;
+
+        /** At most this many errors are sent per minute, so an error loop cannot flood anything. */
+        private int maxPerMinute = 60;
+
+        /** The lowest log level sent: ERROR, or WARN to send warnings too. */
+        private String level = "ERROR";
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public int getMaxPerMinute() {
+            return maxPerMinute;
+        }
+
+        public void setMaxPerMinute(int maxPerMinute) {
+            this.maxPerMinute = maxPerMinute;
+        }
+
+        public String getLevel() {
+            return level;
+        }
+
+        public void setLevel(String level) {
+            this.level = level;
+        }
+    }
+
+    public String getService() {
+        return service;
+    }
+
+    public void setService(String service) {
+        this.service = service;
+    }
+
+    public Errors getErrors() {
+        return errors;
+    }
+
     public String getKey() {
         return key;
     }

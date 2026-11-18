@@ -33,7 +33,15 @@ public final class ObservaTesting {
 
     /** A new, empty capture. */
     public static Capture capture() {
-        return new Capture();
+        return new Capture(null);
+    }
+
+    /**
+     * A new, empty capture with settings of your own, e.g. a service name or a user resolver for errors:
+     * {@code ObservaTesting.capture(b -> b.service("booking-api").userResolver(() -> "42"))}.
+     */
+    public static Capture capture(java.util.function.Consumer<Observa.Builder> settings) {
+        return new Capture(settings);
     }
 
     /** What your code tracked, in order. */
@@ -42,7 +50,7 @@ public final class ObservaTesting {
         private final List<CapturedEvent> events = new CopyOnWriteArrayList<>();
         private final Observa observa;
 
-        private Capture() {
+        private Capture(java.util.function.Consumer<Observa.Builder> settings) {
             Transport memory = (url, key, json) -> {
                 Object batch = Json.read(new String(json, StandardCharsets.UTF_8));
                 int n = 0;
@@ -56,12 +64,17 @@ public final class ObservaTesting {
                 }
                 return new Transport.Response(202, "{\"accepted\":" + n + ",\"rejected\":0,\"errors\":[]}", 0);
             };
-            this.observa = Observa.builder()
+            Observa.Builder builder = Observa.builder();
+            if (settings != null) {
+                settings.accept(builder);
+            }
+            this.observa = builder
                     .key("sk_test_capture")
                     .endpoint("http://observa.capture")
                     .transport(memory)
                     .flushInterval(Duration.ofMillis(10))
                     .shutdownHook(false)
+                    .enabled(true)
                     .build();
         }
 
