@@ -296,4 +296,45 @@ describe('ObservaClient', () => {
       body: { channels: { email: false, sms: true }, text: 'Send me offers by SMS', form: 'preferences' },
     });
   });
+
+  describe('the visitor header (contract §9)', () => {
+    const page = () => ({ href: 'https://shop.example.com/bookings', referrer: '' });
+
+    it('is the visitor and the session of the events, never the user', async () => {
+      const { client, transport } = setup({ page });
+      client.identify('42');
+      client.track('booking.started');
+      const header = client.visitorHeader();
+      await client.flush();
+      const event = transport.events()[1];
+      expect(header).toBe(`${event.subject.anonymousId};${event.sessionId}`);
+      expect(header).not.toContain('42');
+      expect(header).toMatch(/^[A-Za-z0-9_-]{1,128};[A-Za-z0-9_-]{1,128}$/);
+    });
+
+    it('goes to the page\'s own origin and the listed hosts only', () => {
+      const { client } = setup({ page, visitorHosts: ['api.example.com', '*.internal.example.com'] });
+      const value = client.visitorHeader();
+      expect(client.visitorHeaders()).toEqual({ 'Observa-Visitor': value });
+      expect(client.visitorHeaders('/api/bookings')).toEqual({ 'Observa-Visitor': value });
+      expect(client.visitorHeaders('https://shop.example.com/api')).toEqual({ 'Observa-Visitor': value });
+      expect(client.visitorHeaders('https://api.example.com/v1')).toEqual({ 'Observa-Visitor': value });
+      expect(client.visitorHeaders('https://billing.internal.example.com/x')).toEqual({ 'Observa-Visitor': value });
+      expect(client.visitorHeaders('https://payments.other.com/charge')).toEqual({});
+      expect(client.visitorHeaders('https://evil-api.example.com.attacker.io/')).toEqual({});
+      expect(client.visitorHeaders('http://shop.example.com/api')).toEqual({}); // another origin: http
+      expect(client.visitorHeaders('javascript:alert(1)')).toEqual({});
+    });
+
+    it('is a new visitor after reset, and nothing before init', () => {
+      expect(new ObservaClient().visitorHeader()).toBeNull();
+      expect(new ObservaClient().visitorHeaders('/api')).toEqual({});
+      const { client } = setup({ page });
+      const before = client.visitorHeader()!;
+      client.reset();
+      const after = client.visitorHeader()!;
+      expect(after.split(';')[0]).not.toBe(before.split(';')[0]);
+      expect(after.split(';')[1]).not.toBe(before.split(';')[1]);
+    });
+  });
 });

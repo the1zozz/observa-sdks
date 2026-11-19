@@ -114,6 +114,28 @@ Use the same id your web app passes to `observa.identify(…)`, so errors land o
 | `observa.errors.level` | `ERROR` | `WARN` sends warnings too |
 | `observa.service` | `spring.application.name` | The application's name on its errors |
 
+## One person across browser and server
+
+When your web app adds the visitor header to its API calls (`observa.visitorHeaders(url)` in the web SDK), the starter
+reads it on every request. Nothing to write:
+
+- **Events and errors in the request carry the visitor and the visit:**
+  - an error with nobody signed in lands on the visitor, not on the service;
+  - a signed-in user keeps their own id;
+  - `identify`, profile and consent events never take the visitor.
+- **Calls to your other services forward it,** through your `RestTemplate`, `RestClient.Builder` and
+  `WebClient.Builder` beans. A client you build in code with `new` gets it by adding the `ObservaVisitorInterceptor`
+  bean to it.
+- **Systems that use OpenTelemetry** can send it as `observa.visitor` in the `baggage` header instead.
+- **CORS:** if your web app calls the API from another origin, allow the `Observa-Visitor` request header in your CORS
+  settings.
+
+| Property | Default | What it does |
+|---|---|---|
+| `observa.visitor.enabled` | `true` | `false`: the header is neither read nor forwarded |
+| `observa.visitor.ignore-paths` | none | Paths only outsiders call, such as `/webhooks/**`: the header is ignored there |
+| `observa.visitor.forward-hosts` | every host | Only these hosts get the header, e.g. `billing,*.internal.example.com` |
+
 ## Settings
 
 | Property | Default | What it does |

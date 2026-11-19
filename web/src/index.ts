@@ -1,6 +1,6 @@
 import { ObservaClient } from './client.js';
 
-export { ObservaClient, SDK_VERSION } from './client.js';
+export { ObservaClient, SDK_VERSION, VISITOR_HEADER } from './client.js';
 export { memoryStorage } from './platform.js';
 export type {
   Campaign, ConsentChannels, ConsentOptions, KeyValueStorage, ObservaConfig, ObservaStats, Platform, Properties, PushOptions, PushState,

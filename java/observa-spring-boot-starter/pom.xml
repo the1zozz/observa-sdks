@@ -64,6 +64,19 @@
             <version>5.7.11</version>
             <optional>true</optional>
         </dependency>
+        <!-- HTTP clients that forward the visitor: RestTemplate and RestClient (spring-web), WebClient (spring-webflux). -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-web</artifactId>
+            <version>5.3.31</version>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-webflux</artifactId>
+            <version>5.3.31</version>
+            <optional>true</optional>
+        </dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>
