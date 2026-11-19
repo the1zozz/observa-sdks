@@ -168,8 +168,8 @@ JitPack repository once:
 
 | You have | Add |
 |---|---|
-| Spring Boot 2.7, 3 or 4 | `com.github.the1zozz.observa-sdks:observa-spring-boot-starter:0.1.0` |
-| Any other Java 8+ application | `com.github.the1zozz.observa-sdks:observa-java:0.1.0` |
+| Spring Boot 2.7, 3 or 4 | `com.github.the1zozz.observa-sdks:observa-spring-boot-starter:0.2.0` |
+| Any other Java 8+ application | `com.github.the1zozz.observa-sdks:observa-java:0.2.0` |
 
 Neither brings any other library into your application. The Java code is in the packages `com.integralways.observa.*`.
 
@@ -288,7 +288,7 @@ the same event from both.
 2. **Watch the log:**
    - Browser: `[observa]` lines in the console, and a `POST …/ingest/v1/client/events` answered with `202` every
      5 seconds.
-   - Server: at start, `Observa 0.1.0: sending events to … with the key sk_prod_…wxyz`; after the first batch,
+   - Server: at start, `Observa 0.2.0: sending events to … with the key sk_prod_…wxyz`; after the first batch,
      `Observa: connected`.
 3. **In the portal:** **Data → Sources → your source → Live events** shows each event within seconds, with
    `WEB` or `SERVER`.

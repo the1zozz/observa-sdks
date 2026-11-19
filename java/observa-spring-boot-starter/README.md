@@ -21,12 +21,12 @@ Maven:
 <dependency>
   <groupId>com.github.the1zozz.observa-sdks</groupId>
   <artifactId>observa-spring-boot-starter</artifactId>
-  <version>0.1.0</version>
+  <version>0.2.0</version>
 </dependency>
 ```
 
 Gradle: `maven("https://jitpack.io")` in `repositories`, then
-`implementation("com.github.the1zozz.observa-sdks:observa-spring-boot-starter:0.1.0")`.
+`implementation("com.github.the1zozz.observa-sdks:observa-spring-boot-starter:0.2.0")`.
 
 It brings the Java SDK with it. It does not bring Spring Boot: your application's own version is used.
 

@@ -7,7 +7,7 @@
 
     <groupId>com.github.the1zozz.observa-sdks</groupId>
     <artifactId>observa-java-sdks</artifactId>
-    <version>0.2.0-SNAPSHOT</version>
+    <version>0.3.0-SNAPSHOT</version>
     <packaging>pom</packaging>
     <name>Observa Java SDKs</name>
 
