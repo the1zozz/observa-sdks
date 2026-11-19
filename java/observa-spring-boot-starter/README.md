@@ -81,6 +81,39 @@ That's all. Every call in the [Java SDK guide](../README.md#3-send-events) works
 - **Your own bean wins.** Define an `Observa` `@Bean` yourself and the starter steps aside.
 - **IDE hints.** Your IDE completes and explains the `observa.*` properties.
 
+## Errors
+
+The starter sends your application's errors to Observa, linked to the signed-in user:
+
+- **ERROR logs,** with their exceptions, through Logback, Spring Boot's default logging;
+- **web requests that fail with a server error:** an exception that escapes, or a 5xx your `@ExceptionHandler` makes from one. Client errors (4xx) are not errors.
+
+Each one carries the request's method, path and status, `spring.application.name` as its service, and the
+`X-Request-Id` header if there is one.
+
+**Who it happened to:** with Spring Security, the authenticated user's name. If your apps identify people by another
+id (the database id, say), tell the starter how to find it:
+
+```java
+@Bean
+ObservaUserResolver observaUser(UserRepository users) {
+    return () -> {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        return auth == null ? null
+                : users.findByUsername(auth.getName()).map(u -> String.valueOf(u.getId())).orElse(null);
+    };
+}
+```
+
+Use the same id your web app passes to `observa.identify(…)`, so errors land on the same person as their clicks.
+
+| Property | Default | What it does |
+|---|---|---|
+| `observa.errors.enabled` | `true` | `false`: no errors are sent |
+| `observa.errors.max-per-minute` | `60` | At most this many a minute, so an error loop can't flood anything |
+| `observa.errors.level` | `ERROR` | `WARN` sends warnings too |
+| `observa.service` | `spring.application.name` | The application's name on its errors |
+
 ## Settings
 
 | Property | Default | What it does |

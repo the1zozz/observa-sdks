@@ -6,7 +6,7 @@
     <parent>
         <groupId>com.github.the1zozz.observa-sdks</groupId>
         <artifactId>observa-java-sdks</artifactId>
-        <version>0.1.0-SNAPSHOT</version>
+        <version>0.2.0-SNAPSHOT</version>
     </parent>
 
     <artifactId>observa-java</artifactId>

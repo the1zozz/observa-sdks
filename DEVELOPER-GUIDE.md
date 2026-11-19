@@ -238,6 +238,12 @@ A change that is rolled back must not be reported. Send from an after-commit hoo
 events in one class that your services call. [java/INTEGRATING.md](java/INTEGRATING.md) shows both, from a real
 integration.
 
+### Errors, linked to people
+
+With the Spring Boot starter, ERROR logs and requests that fail with a server error are sent to Observa as `$error`
+events, on the person who was signed in. Elsewhere, add the Logback appender, or call `observa.error(userId, e)`
+yourself. If your user id is not the authenticated name, see [the starter's Errors section](java/observa-spring-boot-starter/README.md#errors).
+
 ### Test your own code
 
 ```java

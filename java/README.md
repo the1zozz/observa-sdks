@@ -187,7 +187,55 @@ assertEquals("Lina", e.property("guest.name"));                         // neste
 `capture.events()` lists everything in order, `capture.rejected()` counts what the checks refused, and
 `capture.clear()` starts again.
 
-## 8. Logging
+## 8. Errors
+
+The SDK can send your errors to Observa as `$error` events, each linked to the person it happened to. The Errors page
+then shows which errors hit how many people, and a segment or a journey can react to them: "people who hit a payment
+error this week", or a help email after a failed payment.
+
+**With Spring Boot:** nothing to do. The [starter](observa-spring-boot-starter/README.md#errors) sends ERROR logs and
+web requests that fail with a server error.
+
+**With Logback,** without Spring: add the `observa-logback` dependency (same group and version), then in `logback.xml`:
+
+```xml
+<appender name="OBSERVA" class="com.integralways.observa.logback.ObservaAppender" />
+<root level="INFO">
+  <appender-ref ref="OBSERVA" />
+</root>
+```
+
+Put the signed-in user's id in the MDC where you know it: `MDC.put("userId", user.getId())`.
+
+**With `java.util.logging`:** `Logger.getLogger("").addHandler(new ObservaLogHandler());`
+
+**Yourself,** for an error you catch and handle but still want to see:
+
+```java
+try {
+    payments.charge(booking);
+} catch (PaymentException e) {
+    observa.error(booking.getUserId(), e);
+    // … your handling …
+}
+
+// with every detail
+observa.error(ErrorReport.of(e).user("42").requestId(requestId).property("bookingId", "B-17"));
+```
+
+Each error carries its type, message (first 1000 characters), stack trace (first 16 KB), logger, level, your service's
+name (`service(…)` or `OBSERVA_SERVICE`) and, inside a web request, its method, path and status.
+
+**It is safe to leave on:**
+- **At most 60 errors a minute** (`maxErrorsPerMinute(…)`), so an error loop can't flood anything. The rest of that minute's errors are counted as dropped.
+- **The same exception is sent once,** even when a log and the web filter both see it.
+- **The SDK never sends its own errors.**
+- **Logs below ERROR are not sent** unless you ask for them.
+
+**Who it happened to:** the person named in the call or in the MDC. Failing that, the `userResolver(…)` you give the
+builder. Failing that, the service itself (`service:<name>`).
+
+## 9. Logging
 
 The SDK logs through `java.util.logging`, under the logger `com.integralways.observa`. SLF4J, Logback and Log4j2 can pick
 that up with their JUL bridges, and Spring Boot does it for you.
@@ -199,7 +247,7 @@ that up with their JUL bridges, and Spring Boot does it for you.
 | `SEVERE` | The SDK is off (no key, wrong key or no endpoint), or Observa refused the key |
 | `FINE` | Every detail. Logged at `INFO` with `debug(true)` |
 
-## 9. Check it works
+## 10. Check it works
 
 1. Start your application: the log says `Observa …: sending events to …`. Send one event: the log says
    `Observa: connected`.

@@ -3,6 +3,28 @@
 The Java SDK (`observa-java`) and the Spring Boot starter (`observa-spring-boot-starter`) are released together, with
 the same version. Each version is published once, from a tag `java-v<version>`.
 
+## 0.2.0 · not released yet
+
+Errors in Observa, linked to the people they happen to.
+
+- **`observa.error(…)`** and `ErrorReport` send `$error` events. Each carries its kind, message, stack, logger, level,
+  service, request id and, inside a web request, its method, path and status. A fingerprint groups the same failure at
+  the same place.
+- **Safe to leave on:**
+  - at most 60 errors a minute (`maxErrorsPerMinute`);
+  - the same exception is sent once per thread;
+  - the SDK never sends its own errors.
+- **Who it happened to:** the person in the call or the MDC, else the builder's `userResolver`, else the service
+  itself (`service:<name>`).
+- **New module `observa-logback`:** an appender for Logback 1.2 to 1.5. `ObservaLogHandler` does the same for
+  `java.util.logging`.
+- **Spring Boot starter:**
+  - ERROR logs and web requests that fail with a server error are sent, linked to the signed-in user;
+  - this works with Spring Security, or through your own `ObservaUserResolver`;
+  - settings are `observa.errors.*` and `observa.service`;
+  - it works on Boot 2.7 (javax.servlet) and Boot 3 and 4 (jakarta.servlet).
+- **`ObservaTesting.capture(settings)`** lets your tests set a service or a user resolver.
+
 ## 0.1.0 · 2026-11-18
 
 The first release.
