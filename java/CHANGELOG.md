@@ -1,9 +1,9 @@
 # Java SDK changelog
 
 The Java SDK (`observa-java`) and the Spring Boot starter (`observa-spring-boot-starter`) are released together, with
-the same version. Each version is published once, from a tag `java-v<version>`.
+the same version. Each version is published once, from a tag named after the version (`0.2.0`).
 
-## 0.2.0 · not released yet
+## 0.2.0 · 19 November 2026
 
 Errors in Observa, linked to the people they happen to.
 
