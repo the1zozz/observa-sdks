@@ -1,5 +1,8 @@
 package com.integralways.observa.sdk;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.regex.Pattern;
 
 /**
@@ -67,6 +70,37 @@ public final class Visitor {
             }
         }
         return null;
+    }
+
+    /**
+     * A visitor made by the server itself, for a visit that starts without the web SDK (a server-rendered site, an app
+     * without an Observa SDK, a kiosk): from an id the server already has for the device or the visit, such as its own
+     * cookie or an app's device id. The ids are one-way hashes of those values, so the same value always gives the same
+     * visitor, any value works, and the value itself (a session cookie, say) never leaves the server.
+     * <p>
+     * Null when {@code anonymousSource} is missing; {@code sessionSource} may be null for a visitor without a visit.
+     */
+    public static Visitor derived(String anonymousSource, String sessionSource) {
+        if (anonymousSource == null || anonymousSource.trim().isEmpty()) {
+            return null;
+        }
+        String session = sessionSource == null || sessionSource.trim().isEmpty() ? null
+                : "s" + hash("observa.session\n" + sessionSource.trim());
+        return new Visitor("v" + hash("observa.visitor\n" + anonymousSource.trim()), session);
+    }
+
+    /** The first 32 hex digits of the value's SHA-256. */
+    private static String hash(String value) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder(32);
+            for (int i = 0; i < 16; i++) {
+                hex.append(Character.forDigit((digest[i] >> 4) & 0xf, 16)).append(Character.forDigit(digest[i] & 0xf, 16));
+            }
+            return hex.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is part of every Java runtime", e);
+        }
     }
 
     /** The browser's anonymous id. */

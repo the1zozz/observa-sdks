@@ -175,6 +175,18 @@ who someone is, since anyone can send any header.
 When the visitor signs in, Observa links the anonymous id to the user, so what every server recorded under it moves to
 the person.
 
+**When no client SDK starts the visit** (a server-rendered site, an app without an Observa SDK), the entry server makes
+the visitor itself:
+
+6. **Make** it, when configured and no header came in, from an id the server already has for the device and the visit
+   (its own cookie, a header the app sends). The ids are one-way hashes of those values: `v` and `s` followed by the
+   first 32 hex digits of SHA-256 of `observa.visitor\n<value>` and `observa.session\n<value>`. So the same value
+   gives the same visitor in every language, and the value itself never leaves the server. Rules 2, 3 and 5 then apply
+   unchanged.
+7. **Link** it only by an explicit `identify(userId, anonymousId, traits)` at sign-in, where the code names the
+   visitor's id. When that id is the work's own visitor, the event takes its session, so the sign-in is inside the visit.
+   Rule 4 still holds: a visitor is never taken implicitly. An SDK never sets a cookie of its own.
+
 ## 10. Configuration
 
 | Setting | Server default | Client default |

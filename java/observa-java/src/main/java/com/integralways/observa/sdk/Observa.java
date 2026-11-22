@@ -361,6 +361,17 @@ public final class Observa implements AutoCloseable {
         track(Event.of("$identify").user(userId).properties(traits));
     }
 
+    /**
+     * Tells Observa that the anonymous visitor {@code anonymousId} is the user {@code userId}, so the visitor's earlier
+     * events, errors and visits count for the person, and records the person's traits. Use it at sign-in when the visit
+     * did not start in the web SDK (which links on its own): with {@code Observa.currentVisitor().anonymousId()} for a
+     * visitor the server made ({@link Visitor#derived}), or an app's own anonymous id. A visitor is never linked
+     * without this call.
+     */
+    public void identify(String userId, String anonymousId, Map<String, ?> traits) {
+        track(Event.of("$identify").user(userId).anonymous(anonymousId).properties(traits));
+    }
+
     /** Sets properties of the person's profile, e.g. {@code Props.of("plan", "gold")}. */
     public void setProfile(String userId, Map<String, ?> properties) {
         track(Event.of("$profile.set").user(userId).properties(properties));
@@ -692,6 +703,12 @@ public final class Observa implements AutoCloseable {
             }
             if (e.type.equals("$error") && blank(userId) && blank(anonymousId)) {
                 anonymousId = "service:" + (service == null ? "java" : service);
+            }
+        } else if (blank(sessionId) && !blank(anonymousId)) {
+            // A sign-in that names the request's own visitor (identify(user, visitor's id, …)) is part of its visit.
+            Visitor visitor = VISITOR.get();
+            if (visitor != null && anonymousId.equals(visitor.anonymousId())) {
+                sessionId = visitor.sessionId();
             }
         }
         if (blank(userId) && blank(anonymousId)) {

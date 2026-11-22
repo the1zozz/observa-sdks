@@ -16,6 +16,8 @@ final class VisitorRules {
 
     private final List<Pattern> ignored = new ArrayList<>();
     private final List<Pattern> hosts = new ArrayList<>();
+    private final Source anonymousFrom;
+    private final Source sessionFrom;
 
     VisitorRules(ObservaProperties.Visitor settings) {
         for (String path : settings.getIgnorePaths()) {
@@ -28,10 +30,49 @@ final class VisitorRules {
                 hosts.add(glob(host.trim().toLowerCase(Locale.ROOT), '.'));
             }
         }
+        anonymousFrom = Source.of("observa.visitor.anonymous-from", settings.getAnonymousFrom());
+        sessionFrom = Source.of("observa.visitor.session-from", settings.getSessionFrom());
+        if (anonymousFrom == null && sessionFrom != null) {
+            throw new IllegalArgumentException("observa.visitor.session-from needs observa.visitor.anonymous-from: "
+                    + "a visit belongs to a visitor");
+        }
     }
 
-    /** The visitor of a request to {@code path}: the header, else baggage; null on an ignored path or without one. */
-    Visitor read(String path, Function<String, String> header) {
+    /** A request cookie or header the server reads the visitor or the visit from. */
+    static final class Source {
+        final boolean cookie;
+        final String name;
+
+        private Source(boolean cookie, String name) {
+            this.cookie = cookie;
+            this.name = name;
+        }
+
+        static Source of(String property, String value) {
+            if (value == null || value.trim().isEmpty()) {
+                return null;
+            }
+            String v = value.trim();
+            int colon = v.indexOf(':');
+            String kind = colon < 0 ? "" : v.substring(0, colon).trim().toLowerCase(Locale.ROOT);
+            String name = colon < 0 ? "" : v.substring(colon + 1).trim();
+            if (name.isEmpty() || !(kind.equals("cookie") || kind.equals("header"))) {
+                throw new IllegalArgumentException(property + "=" + value
+                        + " is not a source: use cookie:<name> or header:<name>, e.g. cookie:device_id");
+            }
+            return new Source(kind.equals("cookie"), name);
+        }
+
+        String in(Function<String, String> headers, Function<String, String> cookies) {
+            return cookie ? cookies.apply(name) : headers.apply(name);
+        }
+    }
+
+    /**
+     * The visitor of a request to {@code path}: the header, else baggage, else (when configured) one the server makes
+     * from its own cookie or header; null on an ignored path or without any.
+     */
+    Visitor read(String path, Function<String, String> header, Function<String, String> cookie) {
         if (path != null) {
             for (Pattern p : ignored) {
                 if (p.matcher(path).matches()) {
@@ -40,7 +81,14 @@ final class VisitorRules {
             }
         }
         Visitor visitor = Visitor.parse(header.apply(Visitor.HEADER));
-        return visitor != null ? visitor : Visitor.fromBaggage(header.apply("baggage"));
+        if (visitor == null) {
+            visitor = Visitor.fromBaggage(header.apply("baggage"));
+        }
+        if (visitor == null && anonymousFrom != null) {
+            visitor = Visitor.derived(anonymousFrom.in(header, cookie),
+                    sessionFrom == null ? null : sessionFrom.in(header, cookie));
+        }
+        return visitor;
     }
 
     /** Whether a call to {@code host} gets the header: any host when none are listed. */

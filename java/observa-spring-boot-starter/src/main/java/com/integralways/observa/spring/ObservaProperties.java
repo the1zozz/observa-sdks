@@ -64,6 +64,32 @@ public class ObservaProperties {
          */
         private java.util.List<String> forwardHosts = new java.util.ArrayList<>();
 
+        /**
+         * Where the server finds the visitor when a request brings no Observa-Visitor header, because the visit did not
+         * start in the web SDK: {@code cookie:<name>} or {@code header:<name>}, e.g. cookie:device_id or
+         * header:X-Device-Id. The value is hashed, never sent. Empty (the default): no visitor without the header.
+         */
+        private String anonymousFrom;
+
+        /** Where the server finds the visit for such a request, e.g. cookie:JSESSIONID; hashed like the visitor. */
+        private String sessionFrom;
+
+        public String getAnonymousFrom() {
+            return anonymousFrom;
+        }
+
+        public void setAnonymousFrom(String anonymousFrom) {
+            this.anonymousFrom = anonymousFrom;
+        }
+
+        public String getSessionFrom() {
+            return sessionFrom;
+        }
+
+        public void setSessionFrom(String sessionFrom) {
+            this.sessionFrom = sessionFrom;
+        }
+
         public boolean isEnabled() {
             return enabled;
         }

@@ -1,7 +1,9 @@
 package com.integralways.observa.sdk;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -20,6 +22,42 @@ class VisitorTest {
     @AfterEach
     void clear() {
         Observa.clearVisitor();
+    }
+
+    @Test
+    void aServerCanMakeTheVisitorFromItsOwnIds() {
+        Visitor v = Visitor.derived("device 7/ä.x", "JSESSIONID=ABC.node0");
+        assertTrue(v.anonymousId().matches("v[0-9a-f]{32}"), "any value works: " + v.anonymousId());
+        assertTrue(v.sessionId().matches("s[0-9a-f]{32}"));
+        assertEquals(v, Visitor.derived("device 7/ä.x", "JSESSIONID=ABC.node0"), "the same value, the same visitor");
+        assertEquals(v, Visitor.parse(v.header()), "forwarded like any visitor");
+        assertNotEquals(v.anonymousId(), Visitor.derived("device 8", null).anonymousId());
+        Visitor same = Visitor.derived("x", "x");
+        assertNotEquals(same.anonymousId().substring(1), same.sessionId().substring(1), "one value, two different ids");
+        assertTrue(!v.header().contains("device") && !v.header().contains("ABC"), "the value itself never leaves");
+        assertNull(Visitor.derived("d", null).sessionId());
+        assertNull(Visitor.derived(" ", "s"), "no visitor, no visit");
+        assertNull(Visitor.derived(null, null));
+    }
+
+    @Test
+    void identifyWithAnAnonymousIdLinksItAndNothingElseDoes() {
+        try (ObservaTesting.Capture capture = ObservaTesting.capture()) {
+            Visitor v = Visitor.derived("device-7", "visit-1");
+            Observa.setVisitor(v);
+            capture.observa().track(null, "booking.started");
+            capture.observa().identify("42", Props.of("plan", "gold"));
+            capture.observa().identify("42", Observa.currentVisitor().anonymousId(), Props.of("plan", "gold"));
+            List<ObservaTesting.CapturedEvent> identify = capture.events("$identify");
+            assertNull(identify.get(0).anonymousId(), "the visitor is never taken implicitly");
+            assertEquals(v.anonymousId(), identify.get(1).anonymousId(), "only when the code names it");
+            assertEquals("42", identify.get(1).userId());
+            assertNull(identify.get(0).sessionId());
+            assertEquals(v.sessionId(), identify.get(1).sessionId(), "naming the visitor puts the sign-in in its visit");
+            capture.observa().identify("43", "another-visitor", null);
+            assertNull(capture.events("$identify").get(2).sessionId(), "another visitor: not this visit");
+            assertEquals(v.anonymousId(), capture.single("booking.started").anonymousId());
+        }
     }
 
     @Test

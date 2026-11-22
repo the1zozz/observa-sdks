@@ -28,6 +28,13 @@ One person across browser and server (the SDK contract, §9).
   - the application's `RestTemplate`, `RestClient` and `WebClient.Builder` beans forward it;
   - `ObservaVisitorInterceptor` can be added to clients built in code;
   - settings are `observa.visitor.enabled`, `observa.visitor.ignore-paths` and `observa.visitor.forward-hosts`.
+- **Visits that don't start in the web SDK:**
+  - `Visitor.derived(anonymousSource, sessionSource)` makes a visitor from an id the server already has, such as a
+    cookie or an app's device id. The ids are hashes, so the value never leaves the server.
+  - `observa.identify(userId, anonymousId, traits)` links that visitor to the user at sign-in. When the id is the
+    request's own visitor, the sign-in joins its visit.
+  - In the starter, `observa.visitor.anonymous-from` and `observa.visitor.session-from` (`cookie:<name>` or
+    `header:<name>`) make it when a request brings no header. The starter never sets a cookie.
 - **`ObservaTesting.CapturedEvent.sessionId()`.**
 
 ## 0.2.0 · 19 November 2026

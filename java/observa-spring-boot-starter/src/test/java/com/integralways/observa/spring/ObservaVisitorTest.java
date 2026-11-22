@@ -69,6 +69,14 @@ class ObservaVisitorTest {
             return "ok";
         }
 
+        /** Sign-in on a server-only visit: links the visitor the server made to the user. */
+        @GetMapping("/sign-in")
+        String signIn() {
+            Visitor visitor = Observa.currentVisitor();
+            observa.identify("42", visitor == null ? null : visitor.anonymousId(), Props.of("plan", "gold"));
+            return visitor == null ? "none" : visitor.header();
+        }
+
         @GetMapping("/bookings/fail")
         String fail() {
             throw new IllegalStateException("No room left");
@@ -146,7 +154,15 @@ class ObservaVisitorTest {
     }
 
     String get(String path, String visitor, String baggage) throws Exception {
+        return get(path, visitor, baggage, new String[0]);
+    }
+
+    /** With more request headers, as name, value pairs (e.g. "Cookie", "device_id=d-1"). */
+    String get(String path, String visitor, String baggage, String... headers) throws Exception {
         HttpURLConnection c = (HttpURLConnection) new URL(base + path).openConnection();
+        for (int i = 0; i + 1 < headers.length; i += 2) {
+            c.setRequestProperty(headers[i], headers[i + 1]);
+        }
         if (visitor != null) {
             c.setRequestProperty(Visitor.HEADER, visitor);
         }
@@ -311,5 +327,50 @@ class ObservaVisitorTest {
             }
         });
         assertThat(answer).isEqualTo(HEADER);
+    }
+
+    @Test
+    void withoutTheWebSdkTheServerMakesTheVisitorFromItsCookie() throws Exception {
+        start("observa.visitor.anonymous-from=cookie:device_id", "observa.visitor.session-from=cookie:JSESSIONID");
+        Visitor made = Visitor.derived("d-7f3a", "A1B2C3.node0");
+        get("/bookings/start", null, null, "Cookie", "device_id=d-7f3a; JSESSIONID=A1B2C3.node0");
+        String started = events("booking.started", 1).get(0);
+        assertThat(started).contains("\"anonymousId\":\"" + made.anonymousId() + "\"",
+                "\"sessionId\":\"" + made.sessionId() + "\"").doesNotContain("d-7f3a", "A1B2C3");
+        assertThat(get("/bookings/fail", null, null, "Cookie", "device_id=d-7f3a")).startsWith("500");
+        assertThat(events("$error", 1).get(0)).contains(made.anonymousId()).doesNotContain("service:bookings");
+        assertThat(get("/bookings/call", null, null, "Cookie", "device_id=d-7f3a; JSESSIONID=A1B2C3.node0"))
+                .as("the services it calls get the visitor it made").isEqualTo("200 " + made.header());
+    }
+
+    @Test
+    void anAppsOwnHeaderWorksAndTheWebSdksHeaderWins() throws Exception {
+        start("observa.visitor.anonymous-from=header:X-Device-Id");
+        Visitor made = Visitor.derived("ios-5c1e", null);
+        get("/bookings/start", null, null, "X-Device-Id", "ios-5c1e");
+        assertThat(events("booking.started", 1).get(0)).contains(made.anonymousId()).doesNotContain("sessionId");
+        sent.clear();
+        get("/bookings/start", HEADER, null, "X-Device-Id", "ios-5c1e");
+        assertThat(events("booking.started", 1).get(0)).contains(VISITOR).doesNotContain(made.anonymousId());
+        sent.clear();
+        get("/bookings/start", null, null);
+        assertThat(events("booking.started", 1)).as("no id at all: nothing to go to").isEmpty();
+    }
+
+    @Test
+    void signInLinksTheVisitorTheServerMade() throws Exception {
+        start("observa.visitor.anonymous-from=cookie:device_id");
+        String header = get("/sign-in", null, null, "Cookie", "device_id=d-7f3a").substring(4);
+        List<String> identify = events("$identify", 1);
+        assertThat(identify).hasSize(1);
+        assertThat(identify.get(0)).contains("\"userId\":\"42\"", "\"anonymousId\":\"" + header + "\"");
+    }
+
+    @Test
+    void aWrongSourceStopsTheApplicationWithTheReason() {
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> start("observa.visitor.anonymous-from=device_id"))
+                .hasStackTraceContaining("use cookie:<name> or header:<name>");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> start("observa.visitor.session-from=cookie:JSESSIONID"))
+                .hasStackTraceContaining("needs observa.visitor.anonymous-from");
     }
 }

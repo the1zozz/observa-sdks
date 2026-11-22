@@ -7,6 +7,7 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 
 import com.integralways.observa.sdk.Observa;
@@ -40,11 +41,23 @@ final class JakartaVisitorFilter implements Filter, Ordered {
         }
         HttpServletRequest request = (HttpServletRequest) req;
         Visitor before = Observa.currentVisitor();
-        Observa.setVisitor(rules.read(request.getRequestURI(), request::getHeader));
+        Observa.setVisitor(rules.read(request.getRequestURI(), request::getHeader, name -> cookie(request, name)));
         try {
             chain.doFilter(req, res);
         } finally {
             Observa.setVisitor(before);
         }
+    }
+
+    private static String cookie(HttpServletRequest request, String name) {
+        Cookie[] cookies = request.getCookies();
+        if (cookies != null) {
+            for (Cookie c : cookies) {
+                if (name.equals(c.getName())) {
+                    return c.getValue();
+                }
+            }
+        }
+        return null;
     }
 }

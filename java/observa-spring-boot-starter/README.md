@@ -135,6 +135,35 @@ reads it on every request. Nothing to write:
 | `observa.visitor.enabled` | `true` | `false`: the header is neither read nor forwarded |
 | `observa.visitor.ignore-paths` | none | Paths only outsiders call, such as `/webhooks/**`: the header is ignored there |
 | `observa.visitor.forward-hosts` | every host | Only these hosts get the header, e.g. `billing,*.internal.example.com` |
+| `observa.visitor.anonymous-from` | none | Without the web SDK: where the server finds the visitor, `cookie:<name>` or `header:<name>` |
+| `observa.visitor.session-from` | none | Without the web SDK: where it finds the visit, e.g. `cookie:JSESSIONID` |
+
+### Without the web SDK
+
+When a visit doesn't start in the web SDK (a server-rendered site, an app without an Observa SDK, a kiosk), the
+entry service makes the visitor itself, from an id it already has:
+
+```properties
+observa.visitor.anonymous-from=cookie:device_id      # or header:X-Device-Id, sent by your app
+observa.visitor.session-from=cookie:JSESSIONID       # optional: the visit
+```
+
+- **Only when no `Observa-Visitor` header came in.** A visit that did start in the web SDK keeps the web SDK's ids.
+- **The value is hashed, never sent.** `device_id=d-7f3a` becomes a visitor such as `v1706d30f…`, and the same value
+  always gives the same visitor. A session cookie never leaves your server.
+- **Everything else is the same:** events and errors in the request go to that visitor and visit, and calls to your
+  other services forward it. Those services need no setting.
+- **Link it at sign-in.** Only `identify` with the visitor's id links it to the user:
+
+  ```java
+  Visitor visitor = Observa.currentVisitor();
+  observa.identify(user.getId(), visitor == null ? null : visitor.anonymousId(), Props.of("plan", user.getPlan()));
+  ```
+
+  The sign-in then joins the visit, and everything the visitor did moves to the person.
+- **The starter never sets a cookie.** It reads one your application already has. Setting a long-lived device cookie
+  is your application's decision, under your consent rules.
+- A wrong value, such as `anonymous-from=device_id`, stops the application at start with the reason.
 
 ## Settings
 

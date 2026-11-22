@@ -275,6 +275,23 @@ Observa.withVisitor(message.header(Visitor.HEADER), () -> handle(message));
 executor.submit(Observa.carryVisitor(() -> sendReminder(bookingId)));
 ```
 
+**When the visit doesn't start in the web SDK** (a server-rendered site, an app without an Observa SDK), the entry
+service makes the visitor from an id it already has, such as its own cookie or the app's device id. The value is
+hashed, so it never leaves the server:
+
+```java
+Observa.setVisitor(Visitor.derived(cookie("device_id"), cookie("JSESSIONID")));   // the session may be null
+```
+
+Everything above then works the same, forwarding included. At sign-in, link the visitor to the user, since nothing
+else does:
+
+```java
+observa.identify(userId, Observa.currentVisitor().anonymousId(), traits);
+```
+
+With Spring Boot, `observa.visitor.anonymous-from=cookie:device_id` does the first part.
+
 ## 9. Logging
 
 The SDK logs through `java.util.logging`, under the logger `com.integralways.observa`. SLF4J, Logback and Log4j2 can pick
