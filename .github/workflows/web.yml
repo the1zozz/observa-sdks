@@ -38,4 +38,8 @@ jobs:
       - run: npm test
       - run: npm run build
       - name: The committed script-tag file matches the source
-        run: git diff --exit-code -- browser/ || (echo "::error::web/browser/observa.js is out of date: run npm run build in web/ and commit it" && exit 1)
+        run: |
+          if ! git diff --exit-code -- browser/; then
+            echo "::error::web/browser/observa.js is out of date. Run npm run build in web/ and commit it."
+            exit 1
+          fi
