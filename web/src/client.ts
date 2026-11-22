@@ -586,9 +586,11 @@ export class ObservaClient {
     if (session.referrer) context['referrer'] = session.referrer;
     if (isBrowser()) {
       context['page'] = { path: location.pathname, title: document.title };
-      context['locale'] = navigator.language;
-      context['userAgent'] = navigator.userAgent;
-      context['screen'] = { width: screen.width, height: screen.height };
+      if (typeof navigator !== 'undefined') {
+        context['locale'] = navigator.language;
+        context['userAgent'] = navigator.userAgent;
+      }
+      if (typeof screen !== 'undefined') context['screen'] = { width: screen.width, height: screen.height };
       try {
         context['timezone'] = Intl.DateTimeFormat().resolvedOptions().timeZone;
       } catch {

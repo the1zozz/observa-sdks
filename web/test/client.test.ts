@@ -521,6 +521,7 @@ describe('ObservaClient', () => {
         vi.stubGlobal('document', document);
         vi.stubGlobal('location', { pathname: '/bookings', href: 'https://shop.test/bookings' });
         vi.stubGlobal('screen', { width: 1440, height: 900 });
+        vi.stubGlobal('navigator', { language: 'en', userAgent: 'test' });
         return { document, window };
       }
 

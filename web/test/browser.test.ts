@@ -14,6 +14,7 @@ describe('script tag', () => {
     vi.stubGlobal('document', Object.assign(new EventTarget(), { currentScript: script, visibilityState: 'visible', title: '', referrer: '' }));
     vi.stubGlobal('location', { pathname: '/', href: 'https://site.test/' });
     vi.stubGlobal('screen', { width: 1, height: 1 });
+    vi.stubGlobal('navigator', { language: 'en', userAgent: 'test' });
     return window;
   }
 
