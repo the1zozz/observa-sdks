@@ -2,7 +2,7 @@ import { browserStorage, browserTransport, isBrowser, uuid } from './platform.js
 import * as push from './push.js';
 import type {
   Campaign, ConsentChannels, ConsentOptions, KeyValueStorage, ObservaConfig, ObservaStats, Properties, PushOptions, PushState, TrackedEvent,
-  TrackOptions, Transport,
+  TrackOptions, Transport, TransportResponse,
 } from './types.js';
 
 export const SDK_VERSION = '0.7.0';
@@ -18,8 +18,17 @@ const EVENT_TYPE = /^(\$[a-z][a-z0-9_]*(\.[a-z0-9_]+)*|[a-z][a-z0-9_]*(\.[a-z0-9
 const MAX_TYPE_LENGTH = 128;
 const PATH = '/ingest/v1/client/events';
 const MAX_EVENT_BYTES = 32 * 1024;
+/** A request stays under 512 KB (contract §5), with room for the envelope. */
+const MAX_REQUEST_BYTES = 512 * 1024 - 1024;
+/**
+ * Browsers give everything sent while a page closes about 64 KB in all (sendBeacon and keepalive fetch share it), so
+ * page-exit beacons stay under that together. What doesn't fit is saved and sent on the next page.
+ */
+const MAX_BEACON_BYTES = 60 * 1024;
+/** At most this much is saved for the next page, so storage stays small. */
+const MAX_SAVED_BYTES = 256 * 1024;
 const MAX_BACKOFF_MS = 60_000;
-const KEYS = { anonymousId: 'observa.aid', userId: 'observa.uid', session: 'observa.session' } as const;
+const KEYS = { anonymousId: 'observa.aid', userId: 'observa.uid', session: 'observa.session', pending: 'observa.pending' } as const;
 
 /**
  * A visit. Where it came from is taken when it starts: the campaign tags of the landing URL and the referring site.
@@ -37,6 +46,12 @@ const UTM: Record<string, keyof Campaign> = {
 };
 const MAX_TAG_LENGTH = 100;
 
+/** A queued event and its size once written, in UTF-8 bytes. */
+interface Entry {
+  event: TrackedEvent;
+  bytes: number;
+}
+
 type Settings = Required<Omit<ObservaConfig, 'transport' | 'storage' | 'now' | 'page' | 'visitorHosts'>> & { visitorHosts: string[] };
 
 /**
@@ -50,11 +65,17 @@ export class ObservaClient {
   private now: () => number = () => Date.now();
   private pageInfo: () => { href: string; referrer: string } = currentPage;
 
-  private queue: TrackedEvent[] = [];
+  private queue: Entry[] = [];
   private inFlight = false;
+  /** The request on its way, so a flush can wait for it rather than skip it. */
+  private sending: Promise<boolean> | null = null;
   private attempt = 0;
   private retryAt = 0;
-  private stats_: ObservaStats = { queued: 0, sent: 0, rejected: 0, dropped: 0 };
+  /** After a 413, the next requests carry at most this many events, until one is accepted. */
+  private splitTo = 0;
+  private closed = false;
+  private warned = new Set<string>();
+  private stats_: ObservaStats = { queued: 0, sent: 0, rejected: 0, dropped: 0, retried: 0 };
 
   private timer: ReturnType<typeof setInterval> | null = null;
   private teardown: Array<() => void> = [];
@@ -62,12 +83,18 @@ export class ObservaClient {
 
   init(config: ObservaConfig): void {
     this.guard('init', () => {
-      if (this.settings) {
-        this.log('init called twice; ignoring');
+      if (this.settings || this.closed) {
+        this.log(this.closed ? 'init after shutdown; ignoring' : 'init called twice; ignoring');
         return;
       }
       if (!config?.key || !config?.endpoint) {
         throw new Error('key and endpoint are required');
+      }
+      if (config.key.startsWith('sk_')) {
+        // A secret key in a web page is a leak, and Observa refuses it from a browser anyway (contract §1).
+        this.warnOnce('sk', 'a secret key (sk_…) must never be in a web page. Observa is off; use the source\'s '
+          + 'publishable key (pk_…) here, and rotate the secret key if this page was published.');
+        return;
       }
       this.settings = {
         key: config.key,
@@ -86,6 +113,7 @@ export class ObservaClient {
       this.now = config.now ?? (() => Date.now());
       this.pageInfo = config.page ?? currentPage;
 
+      this.restorePending();
       this.timer = setInterval(() => void this.flush(), this.settings.flushIntervalMs);
       if (isBrowser()) {
         this.listenForPageExit();
@@ -219,10 +247,20 @@ export class ObservaClient {
     });
   }
 
-  /** Sends one batch now. Resolves when the attempt finishes; never rejects. */
+  /**
+   * Sends what is queued now, batch after batch. Resolves when the queue is empty, or when Observa can't be reached
+   * and the rest waits for its retry; never rejects.
+   */
   async flush(): Promise<void> {
     try {
-      await this.sendNextBatch();
+      for (let i = 0; i < 1_000 && (this.queue.length > 0 || this.sending); i++) {
+        if (this.sending) {
+          // Another flush is sending: wait for its answer, then carry on with what is left.
+          if (!(await this.sending)) break;
+          continue;
+        }
+        if (!(await this.sendNextBatch())) break;
+      }
     } catch (e) {
       this.log('flush failed', e);
     }
@@ -232,7 +270,7 @@ export class ObservaClient {
     return { ...this.stats_, queued: this.queue.length };
   }
 
-  /** Stops timers and listeners, then hands anything queued to the beacon. */
+  /** Stops timers and listeners and hands anything queued to the beacon. Later calls are ignored. */
   shutdown(): void {
     this.guard('shutdown', () => {
       if (this.timer) clearInterval(this.timer);
@@ -240,14 +278,16 @@ export class ObservaClient {
       this.beaconAll();
       this.teardown.forEach((undo) => undo());
       this.teardown = [];
+      this.closed = true;
     });
   }
 
   // ---- queue ----
 
   private enqueue(type: string, body: Properties, attributes?: Properties): void {
-    if (type.length > MAX_TYPE_LENGTH || !EVENT_TYPE.test(type)) {
-      this.drop(1, `invalid event type "${type}" (use dotted lowercase, e.g. product.viewed)`);
+    if (this.closed) return;
+    if (typeof type !== 'string' || type.length > MAX_TYPE_LENGTH || !EVENT_TYPE.test(type)) {
+      this.reject(1, `invalid event type "${type}" (use dotted lowercase, e.g. product.viewed)`);
       return;
     }
     const session = this.touchSession();
@@ -267,46 +307,94 @@ export class ObservaClient {
     };
     let size: number;
     try {
-      size = JSON.stringify(event).length;
+      size = utf8Length(JSON.stringify(event));
     } catch {
-      this.drop(1, `event "${type}" has data that cannot be serialised`);
+      this.reject(1, `event "${type}" has data that cannot be serialised`);
       return;
     }
     if (size > MAX_EVENT_BYTES) {
-      this.drop(1, `event "${type}" is larger than ${MAX_EVENT_BYTES} bytes`);
+      this.reject(1, `event "${type}" is larger than ${MAX_EVENT_BYTES} bytes: send ids and the values you need`);
       return;
     }
-    this.queue.push(event);
+    this.queue.push({ event, bytes: size });
     this.trimQueue();
     if (this.settings && this.queue.length >= this.settings.maxBatchSize) void this.flush();
   }
 
-  private async sendNextBatch(): Promise<void> {
+  /** One request: true when it got an answer that lets the next batch go now. */
+  private sendNextBatch(): Promise<boolean> {
+    if (this.sending) return this.sending;
     const settings = this.settings;
-    if (!settings || this.inFlight || this.queue.length === 0) return;
-    if (this.now() < this.retryAt) return;
+    if (!settings || this.inFlight || this.queue.length === 0 || this.now() < this.retryAt) return Promise.resolve(false);
+    this.sending = this.sendOne(settings).finally(() => {
+      this.sending = null;
+    });
+    return this.sending;
+  }
 
-    const batch = this.queue.splice(0, settings.maxBatchSize);
+  private async sendOne(settings: Settings): Promise<boolean> {
+
+    const limit = this.splitTo > 0 ? Math.min(this.splitTo, settings.maxBatchSize) : settings.maxBatchSize;
+    const batch = this.take(limit, MAX_REQUEST_BYTES);
+    const events = batch.map((e) => e.event);
     this.inFlight = true;
     try {
-      const { status, body } = await this.transport.send({ url: this.url(), body: this.body(batch) });
+      let answer: TransportResponse;
+      try {
+        answer = await this.transport.send({ url: this.url(), body: this.body(events) });
+      } catch (e) {
+        answer = { status: 0 };
+        this.log('transport failed', e);
+      }
+      const { status, body } = answer;
       if (status >= 200 && status < 300) {
-        const rejected = this.reportRejections(batch, body);
+        const rejected = Math.min(batch.length, this.reportRejections(events, body));
         this.stats_.sent += batch.length - rejected;
         this.stats_.rejected += rejected;
         this.attempt = 0;
         this.retryAt = 0;
-      } else if (isRetryable(status)) {
+        this.splitTo = 0;
+        return true;
+      }
+      if (isRetryable(status)) {
         this.requeue(batch);
         this.attempt++;
-        this.retryAt = this.now() + backoff(this.attempt);
+        this.stats_.retried++;
+        const after = status === 429 || status === 503 ? (answer.retryAfter ?? 0) * 1_000 : 0;
+        this.retryAt = this.now() + Math.max(backoff(this.attempt), after);
         this.log(`send failed (status ${status}); retry #${this.attempt} in ${this.retryAt - this.now()} ms`);
-      } else {
-        this.drop(batch.length, `server rejected batch with status ${status}`);
+        return false;
       }
+      if (status === 413 && batch.length > 1) {
+        // Too large for the server: the same events again, in halves.
+        this.requeue(batch);
+        this.splitTo = Math.ceil(batch.length / 2);
+        this.log(`batch too large; sending ${this.splitTo} events at a time`);
+        return true;
+      }
+      this.reject(batch.length, `Observa refused a batch of ${batch.length} (status ${status})`);
+      if (status === 401 || status === 403) {
+        this.warnOnce('auth', `Observa refused the key (status ${status}): check it is the source's publishable key `
+          + '(pk_…) and that this site\'s address is one of the key\'s allowed origins. Events are not being stored.');
+      }
+      this.splitTo = 0;
+      return true;
     } finally {
       this.inFlight = false;
     }
+  }
+
+  /** The oldest events that fit: at most `limit`, and under `maxBytes` once written. */
+  private take(limit: number, maxBytes: number): Entry[] {
+    let bytes = 64;
+    let n = 0;
+    while (n < this.queue.length && n < limit) {
+      const size = this.queue[n].bytes + 1;
+      if (n > 0 && bytes + size > maxBytes) break;
+      bytes += size;
+      n++;
+    }
+    return this.queue.splice(0, n);
   }
 
   /**
@@ -334,7 +422,7 @@ export class ObservaClient {
     return rejected;
   }
 
-  private requeue(batch: TrackedEvent[]): void {
+  private requeue(batch: Entry[]): void {
     this.queue.unshift(...batch);
     this.trimQueue();
   }
@@ -353,15 +441,79 @@ export class ObservaClient {
     this.log(`dropped ${count}: ${reason}`);
   }
 
+  private reject(count: number, reason: string): void {
+    this.stats_.rejected += count;
+    this.log(`rejected ${count}: ${reason}`);
+  }
+
+  /**
+   * The page is being hidden or closed: what is queued goes with sendBeacon, which the browser delivers after the page
+   * is gone. The browser allows about 64 KB for all of it, so the beacons stay under that together; the rest is saved
+   * and sent by the next page (same ids, so Observa stores each event once).
+   */
   private beaconAll(): void {
     const settings = this.settings;
-    if (!settings || !this.transport.beacon) return;
-    while (this.queue.length > 0) {
-      const batch = this.queue.slice(0, settings.maxBatchSize);
-      if (!this.transport.beacon({ url: this.url(), body: this.body(batch) })) return;
-      this.queue.splice(0, batch.length);
+    if (!settings || this.inFlight) return;
+    let room = MAX_BEACON_BYTES;
+    while (this.transport.beacon && this.queue.length > 0) {
+      const batch = this.take(settings.maxBatchSize, room);
+      const bytes = batch.reduce((n, e) => n + e.bytes + 1, 64);
+      if (bytes > room) {
+        this.queue.unshift(...batch);
+        break;
+      }
+      let accepted = false;
+      try {
+        accepted = this.transport.beacon({ url: this.url(), body: this.body(batch.map((e) => e.event)) });
+      } catch (e) {
+        this.log('beacon failed', e);
+      }
+      if (!accepted) {
+        this.queue.unshift(...batch);
+        break;
+      }
+      room -= bytes;
       this.stats_.sent += batch.length;
     }
+    this.savePending();
+  }
+
+  /** Keeps what the beacons could not carry for the next page, newest first when space runs out. */
+  private savePending(): void {
+    const store = this.store();
+    if (!store || !this.settings) return;
+    if (this.queue.length === 0) {
+      store.remove(KEYS.pending);
+      return;
+    }
+    const kept: TrackedEvent[] = [];
+    let bytes = 0;
+    for (let i = this.queue.length - 1; i >= 0 && bytes + this.queue[i].bytes <= MAX_SAVED_BYTES; i--) {
+      kept.unshift(this.queue[i].event);
+      bytes += this.queue[i].bytes;
+    }
+    store.set(KEYS.pending, JSON.stringify({ key: this.settings.key, events: kept }));
+  }
+
+  /** Events a previous page saved at exit go first, for the same key only. */
+  private restorePending(): void {
+    const store = this.store();
+    const raw = store?.get(KEYS.pending);
+    if (!raw) return;
+    store?.remove(KEYS.pending);
+    let saved: { key?: string; events?: TrackedEvent[] };
+    try {
+      saved = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    if (saved?.key !== this.settings?.key || !Array.isArray(saved.events)) return;
+    const restored = saved.events
+      .filter((e) => e && typeof e.id === 'string' && typeof e.type === 'string')
+      .map((event) => ({ event, bytes: utf8Length(JSON.stringify(event)) }));
+    this.queue.unshift(...restored);
+    this.trimQueue();
+    this.log(`sending ${restored.length} events saved by the previous page`);
   }
 
   private url(): string {
@@ -450,7 +602,12 @@ export class ObservaClient {
 
   private listenForPageExit(): void {
     const onHidden = () => {
-      if (document.visibilityState === 'hidden') this.beaconAll();
+      if (document.visibilityState === 'hidden') {
+        this.beaconAll();
+      } else {
+        // Back on the page: what was saved is still queued here, so the next page must not send it again.
+        this.store()?.remove(KEYS.pending);
+      }
     };
     const onPageHide = () => this.beaconAll();
     document.addEventListener('visibilitychange', onHidden);
@@ -558,6 +715,17 @@ export class ObservaClient {
     }
   }
 
+  /** A mistake that stops events from being stored: shown once even without debug, so it is never missed. */
+  private warnOnce(kind: string, message: string): void {
+    if (this.warned.has(kind)) return;
+    this.warned.add(kind);
+    try {
+      if (typeof console !== 'undefined') console.warn(`[observa] ${message}`);
+    } catch {
+      /* never into the app */
+    }
+  }
+
   private log(message: string, detail?: unknown): void {
     if (this.settings?.debug && typeof console !== 'undefined') {
       console.debug(`[observa] ${message}`, detail ?? '');
@@ -569,9 +737,21 @@ function isRetryable(status: number): boolean {
   return status === 0 || status === 408 || status === 429 || status >= 500;
 }
 
-function backoff(attempt: number): number {
-  const base = Math.min(MAX_BACKOFF_MS, 1_000 * 2 ** (attempt - 1));
-  return base / 2 + Math.random() * (base / 2);
+/** 1 s doubling to 60 s, plus up to 20 % random jitter (contract §6). */
+export function backoff(attempt: number): number {
+  const base = Math.min(MAX_BACKOFF_MS, 1_000 * 2 ** Math.min(20, attempt - 1));
+  return base + Math.random() * base * 0.2;
+}
+
+/** The size of a string in UTF-8, as it goes on the wire. */
+function utf8Length(text: string): number {
+  if (typeof TextEncoder !== 'undefined') return new TextEncoder().encode(text).length;
+  let bytes = 0;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    bytes += c < 0x80 ? 1 : c < 0x800 ? 2 : c >= 0xd800 && c < 0xdc00 ? (i++, 4) : 3;
+  }
+  return bytes;
 }
 
 function currentPage(): { href: string; referrer: string } {

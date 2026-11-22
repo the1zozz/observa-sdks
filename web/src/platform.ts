@@ -16,7 +16,8 @@ export const browserTransport: Transport = {
       } catch {
         text = undefined;
       }
-      return { status: response.status, body: text };
+      const retryAfter = Number(response.headers?.get?.('Retry-After'));
+      return { status: response.status, body: text, ...(retryAfter > 0 ? { retryAfter } : {}) };
     } catch {
       return { status: 0 };
     }
