@@ -302,13 +302,13 @@ describe('ObservaClient', () => {
 
     it('is the visitor and the session of the events, never the user', async () => {
       const { client, transport } = setup({ page });
-      client.identify('42');
+      client.identify('user_xyz');   // not hex, so a random UUID can never contain it by chance
       client.track('booking.started');
       const header = client.visitorHeader();
       await client.flush();
       const event = transport.events()[1];
       expect(header).toBe(`${event.subject.anonymousId};${event.sessionId}`);
-      expect(header).not.toContain('42');
+      expect(header).not.toContain('user_xyz');
       expect(header).toMatch(/^[A-Za-z0-9_-]{1,128};[A-Za-z0-9_-]{1,128}$/);
     });
 
