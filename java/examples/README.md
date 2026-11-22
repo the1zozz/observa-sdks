@@ -3,7 +3,7 @@
 Two small programs to try the SDK against a running Observa. Both need a **secret key** of a source (Data → Sources →
 your source → New key → Your servers) and Observa's address.
 
-They use the published SDK from JitPack (version 0.2.0), so there is nothing to install first.
+They use the published SDK from JitPack (version 0.3.0), so there is nothing to install first.
 
 | Example | Shows | Run |
 |---|---|---|

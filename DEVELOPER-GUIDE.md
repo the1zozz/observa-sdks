@@ -91,13 +91,20 @@ words they agreed to. Both SDKs have a `consent` call for this (examples below).
 Install it from its file on the [GitHub release](https://github.com/the1zozz/observa-sdks/releases):
 
 ```sh
-npm install https://github.com/the1zozz/observa-sdks/releases/download/0.1.0/observa-web-0.6.0.tgz
+npm install https://github.com/the1zozz/observa-sdks/releases/download/0.3.0/observa-web-0.7.0.tgz
 ```
 
-Your `package.json` then says `"@observa/web": "https://…/observa-web-0.6.0.tgz"`. Imports are
+Your `package.json` then says `"@observa/web": "https://…/observa-web-0.7.0.tgz"`. Imports are
 `import { observa } from '@observa/web'`.
 
-It has no dependencies, is about 6 KB gzipped, and ships as an ES module with TypeScript types.
+It has no dependencies, is about 7 KB gzipped, and ships as an ES module with TypeScript types.
+
+**A page with no build tool** needs only one tag, which starts the SDK by itself:
+
+```html
+<script src="https://cdn.jsdelivr.net/gh/the1zozz/observa-sdks@0.3.0/web/browser/observa.js"
+        data-key="pk_prod_…" data-endpoint="https://observa.yourcompany.com"></script>
+```
 
 ### Start it once, as early as possible
 
@@ -168,8 +175,8 @@ JitPack repository once:
 
 | You have | Add |
 |---|---|
-| Spring Boot 2.7, 3 or 4 | `com.github.the1zozz.observa-sdks:observa-spring-boot-starter:0.2.0` |
-| Any other Java 8+ application | `com.github.the1zozz.observa-sdks:observa-java:0.2.0` |
+| Spring Boot 2.7, 3 or 4 | `com.github.the1zozz.observa-sdks:observa-spring-boot-starter:0.3.0` |
+| Any other Java 8+ application | `com.github.the1zozz.observa-sdks:observa-java:0.3.0` |
 
 Neither brings any other library into your application. The Java code is in the packages `com.integralways.observa.*`.
 
@@ -288,7 +295,7 @@ the same event from both.
 2. **Watch the log:**
    - Browser: `[observa]` lines in the console, and a `POST …/ingest/v1/client/events` answered with `202` every
      5 seconds.
-   - Server: at start, `Observa 0.2.0: sending events to … with the key sk_prod_…wxyz`; after the first batch,
+   - Server: at start, `Observa 0.3.0: sending events to … with the key sk_prod_…wxyz`; after the first batch,
      `Observa: connected`.
 3. **In the portal:** **Data → Sources → your source → Live events** shows each event within seconds, with
    `WEB` or `SERVER`.

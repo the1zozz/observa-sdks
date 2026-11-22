@@ -4,7 +4,7 @@
 script-tag file (`observa.js`) are attached to the GitHub release, and jsDelivr serves the script at the tag. The web
 SDK keeps its own version number.
 
-## 0.7.0 · not released yet (release 0.3.0)
+## 0.7.0 · 22 November 2026 (release 0.3.0)
 
 **One person across browser and server** (the SDK contract, §9):
 

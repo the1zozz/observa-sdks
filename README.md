@@ -5,9 +5,9 @@ do, and what happens in your systems, on one timeline per person.
 
 | SDK | For | Install | Guide |
 |---|---|---|---|
-| **Web** `@observa/web` | Any browser app: Angular, React, Vue, Next.js, plain HTML | `npm install https://github.com/the1zozz/observa-sdks/releases/download/0.1.0/observa-web-0.6.0.tgz` | [web/README.md](web/README.md) |
-| **Java** `observa-java` | Any Java 8, 11, 17 or 25 application | `com.github.the1zozz.observa-sdks:observa-java:0.2.0` from [JitPack](https://jitpack.io/#the1zozz/observa-sdks) | [java/README.md](java/README.md) |
-| **Spring Boot starter** | Spring Boot 2.7, 3 and 4 | `com.github.the1zozz.observa-sdks:observa-spring-boot-starter:0.2.0` from JitPack | [java/observa-spring-boot-starter](java/observa-spring-boot-starter/README.md) |
+| **Web** `@observa/web` 0.7.0 | Any browser app: Angular, React, Vue, Next.js; plain HTML with one `<script>` tag | `npm install https://github.com/the1zozz/observa-sdks/releases/download/0.3.0/observa-web-0.7.0.tgz` | [web/README.md](web/README.md) |
+| **Java** `observa-java` | Any Java 8, 11, 17 or 25 application | `com.github.the1zozz.observa-sdks:observa-java:0.3.0` from [JitPack](https://jitpack.io/#the1zozz/observa-sdks) | [java/README.md](java/README.md) |
+| **Spring Boot starter** | Spring Boot 2.7, 3 and 4 | `com.github.the1zozz.observa-sdks:observa-spring-boot-starter:0.3.0` from JitPack | [java/observa-spring-boot-starter](java/observa-spring-boot-starter/README.md) |
 
 **Start here:** the [developer guide](DEVELOPER-GUIDE.md) covers keys, the rules both sides follow, the browser and the
 server step by step, and how to check it works.
@@ -25,7 +25,7 @@ server step by step, and how to check it works.
 <dependency>
   <groupId>com.github.the1zozz.observa-sdks</groupId>
   <artifactId>observa-java</artifactId>
-  <version>0.2.0</version>
+  <version>0.3.0</version>
 </dependency>
 ```
 
@@ -51,5 +51,6 @@ They never throw into your code or make it wait on the network. They batch event
 | [`CONTRACT.md`](CONTRACT.md) | What every Observa SDK does, whatever its language |
 | [`DEVELOPER-GUIDE.md`](DEVELOPER-GUIDE.md) | How to add Observa to an app and its backend |
 
-Releases: a tag (e.g. `0.2.0`) is built by JitPack on request; the jars and the web SDK's package are attached to the
-[GitHub release](https://github.com/the1zozz/observa-sdks/releases). Changes: [java/CHANGELOG.md](java/CHANGELOG.md).
+Releases: a tag (e.g. `0.3.0`) is built by JitPack on request; the jars and the web SDK's package are attached to the
+[GitHub release](https://github.com/the1zozz/observa-sdks/releases). Changes: [java/CHANGELOG.md](java/CHANGELOG.md), [web/CHANGELOG.md](web/CHANGELOG.md). How a release is made:
+[RELEASING.md](RELEASING.md).
