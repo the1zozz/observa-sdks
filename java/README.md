@@ -235,6 +235,63 @@ name (`service(…)` or `OBSERVA_SERVICE`) and, inside a web request, its method
 **Who it happened to:** the person named in the call or in the MDC. Failing that, the `userResolver(…)` you give the
 builder. Failing that, the service itself (`service:<name>`).
 
+## 8b. One person across browser and server
+
+The web SDK can tell your servers who the visitor is: `Observa-Visitor: <anonymousId>;<sessionId>`, two random ids,
+never the user id. With it, what your servers record during a visitor's request lands on that visitor and in their
+visit. When they sign in, all of it moves to the person.
+
+**With Spring Boot:** nothing to do (see the [starter](observa-spring-boot-starter/README.md#one-person-across-browser-and-server)).
+
+**Elsewhere,** in your web framework's middleware:
+
+```java
+Observa.setVisitor(request.getHeader(Visitor.HEADER));   // a malformed value is ignored
+try {
+    chain.handle(request);
+} finally {
+    Observa.clearVisitor();
+}
+```
+
+Then, on that thread:
+
+- `track(null, "booking.started")` goes to the visitor;
+- `track("42", …)` stays on user 42, in the visitor's visit;
+- errors go to the visitor rather than to the service;
+- `identify`, `setProfile` and `consent` never take the visitor: linking a visitor to a user is the browser's job at
+  sign-in.
+
+**Passing it on** to your other services:
+
+```java
+// an HTTP call
+connection.setRequestProperty(Visitor.HEADER, Observa.visitorHeader());
+
+// a message: put it in the message's headers, and in the consumer
+Observa.withVisitor(message.header(Visitor.HEADER), () -> handle(message));
+
+// work handed to another thread
+executor.submit(Observa.carryVisitor(() -> sendReminder(bookingId)));
+```
+
+**When the visit doesn't start in the web SDK** (a server-rendered site, an app without an Observa SDK), the entry
+service makes the visitor from an id it already has, such as its own cookie or the app's device id. The value is
+hashed, so it never leaves the server:
+
+```java
+Observa.setVisitor(Visitor.derived(cookie("device_id"), cookie("JSESSIONID")));   // the session may be null
+```
+
+Everything above then works the same, forwarding included. At sign-in, link the visitor to the user, since nothing
+else does:
+
+```java
+observa.identify(userId, Observa.currentVisitor().anonymousId(), traits);
+```
+
+With Spring Boot, `observa.visitor.anonymous-from=cookie:device_id` does the first part.
+
 ## 9. Logging
 
 The SDK logs through `java.util.logging`, under the logger `com.integralways.observa`. SLF4J, Logback and Log4j2 can pick

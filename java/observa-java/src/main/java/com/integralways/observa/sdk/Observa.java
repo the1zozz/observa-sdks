@@ -177,7 +177,7 @@ public final class Observa implements AutoCloseable {
         }
 
         /**
-         * Who the person is when an error names none: called on the thread that reports it, e.g. to read the
+         * Who the person is when an event or error names none: called on the thread that records it, e.g. to read the
          * signed-in user of the current request. The Spring Boot starter sets it for you.
          */
         public Builder userResolver(Supplier<String> userResolver) {
@@ -219,6 +219,9 @@ public final class Observa implements AutoCloseable {
 
     /** What a web integration knows about the request being handled on this thread: added to its errors. */
     private static final ThreadLocal<Map<String, Object>> REQUEST = new ThreadLocal<>();
+
+    /** The browser's visitor and session for the work on this thread (the SDK contract, §9). */
+    private static final ThreadLocal<Visitor> VISITOR = new ThreadLocal<>();
 
     /** The application's Observa, for integrations made by other frameworks (log appenders): the latest one built. */
     private static volatile Observa current;
@@ -311,7 +314,10 @@ public final class Observa implements AutoCloseable {
 
     // ------------------------------------------------------------------ the API
 
-    /** Records that the person {@code userId} did {@code type}, e.g. booking.confirmed. */
+    /**
+     * Records that the person {@code userId} did {@code type}, e.g. booking.confirmed. A null {@code userId} means the
+     * person the user resolver gives, or else the browser visitor of the current request ({@link #setVisitor}).
+     */
     public void track(String userId, String type) {
         track(Event.of(type).user(userId));
     }
@@ -355,6 +361,17 @@ public final class Observa implements AutoCloseable {
         track(Event.of("$identify").user(userId).properties(traits));
     }
 
+    /**
+     * Tells Observa that the anonymous visitor {@code anonymousId} is the user {@code userId}, so the visitor's earlier
+     * events, errors and visits count for the person, and records the person's traits. Use it at sign-in when the visit
+     * did not start in the web SDK (which links on its own): with {@code Observa.currentVisitor().anonymousId()} for a
+     * visitor the server made ({@link Visitor#derived}), or an app's own anonymous id. A visitor is never linked
+     * without this call.
+     */
+    public void identify(String userId, String anonymousId, Map<String, ?> traits) {
+        track(Event.of("$identify").user(userId).anonymous(anonymousId).properties(traits));
+    }
+
     /** Sets properties of the person's profile, e.g. {@code Props.of("plan", "gold")}. */
     public void setProfile(String userId, Map<String, ?> properties) {
         track(Event.of("$profile.set").user(userId).properties(properties));
@@ -390,7 +407,8 @@ public final class Observa implements AutoCloseable {
     /**
      * Records an error with every detail (the SDK contract, §8). At most {@code maxErrorsPerMinute} are sent; the same
      * exception reported twice on one thread (by a log and by the web filter, say) is sent once. An error that names
-     * no person goes to the person the user resolver gives, or else to the service itself ({@code service:<name>}).
+     * no person goes to the person the user resolver gives, else to the visitor of the current request
+     * ({@link #setVisitor}), else to the service itself ({@code service:<name>}).
      */
     public void error(ErrorReport report) {
         try {
@@ -415,27 +433,8 @@ public final class Observa implements AutoCloseable {
             if (request != null && !body.containsKey("http")) {
                 body.put("http", request);
             }
-            Event event = Event.of("$error").properties(body);
-            String user = report.userId;
-            if (blank(user) && blank(report.anonymousId) && userResolver != null) {
-                try {
-                    user = userResolver.get();
-                } catch (RuntimeException e) {
-                    log.log(Level.FINE, "Observa: the user resolver failed", e);
-                }
-            }
-            if (!blank(user)) {
-                event.user(user);
-            }
-            if (!blank(report.anonymousId)) {
-                event.anonymous(report.anonymousId);
-            }
-            if (blank(user) && blank(report.anonymousId)) {
-                event.anonymous("service:" + (service == null ? "java" : service));
-            }
-            if (!blank(report.sessionId)) {
-                event.session(report.sessionId);
-            }
+            Event event = Event.of("$error").properties(body)
+                    .user(report.userId).anonymous(report.anonymousId).session(report.sessionId);
             record(event);
         } catch (RuntimeException e) {
             log.log(Level.FINE, "Observa: error not recorded", e);
@@ -457,6 +456,95 @@ public final class Observa implements AutoCloseable {
     /** For web integrations: the request is over. */
     public static void clearRequest() {
         REQUEST.remove();
+    }
+
+    // ------------------------------------------------------------------ the browser's visitor (contract §9)
+
+    /**
+     * The work on this thread is for the browser visitor in {@code header} (the {@code Observa-Visitor} header's value,
+     * {@code <anonymousId>;<sessionId>}): until {@link #clearVisitor()}, {@code track} and {@code error} calls on this
+     * thread carry its session, and its anonymous id when they name none. Identify, profile and consent events never
+     * carry it. A malformed value is ignored. The Spring Boot starter does this for each request.
+     *
+     * @return the visitor, or null when the value was missing or malformed (and the thread then has none)
+     */
+    public static Visitor setVisitor(String header) {
+        Visitor visitor = Visitor.parse(header);
+        setVisitor(visitor);
+        return visitor;
+    }
+
+    /** As {@link #setVisitor(String)}, with a visitor already read; null clears it. */
+    public static void setVisitor(Visitor visitor) {
+        if (visitor == null) {
+            VISITOR.remove();
+        } else {
+            VISITOR.set(visitor);
+        }
+    }
+
+    /** The visitor of the work on this thread, or null. */
+    public static Visitor currentVisitor() {
+        return VISITOR.get();
+    }
+
+    /** The work for the visitor is over (the end of the request, the message handled). */
+    public static void clearVisitor() {
+        VISITOR.remove();
+    }
+
+    /**
+     * The value to send as the {@code Observa-Visitor} header when this work calls another of your services, or null
+     * when there is no visitor: {@code request.header(Visitor.HEADER, Observa.visitorHeader())}.
+     */
+    public static String visitorHeader() {
+        Visitor visitor = VISITOR.get();
+        return visitor == null ? null : visitor.header();
+    }
+
+    /**
+     * Runs {@code task} for the visitor in {@code header}, e.g. a message whose headers carry it, then restores what this
+     * thread had before: {@code Observa.withVisitor(message.header("Observa-Visitor"), () -> handle(message))}.
+     */
+    public static void withVisitor(String header, Runnable task) {
+        Visitor before = VISITOR.get();
+        setVisitor(header);
+        try {
+            task.run();
+        } finally {
+            setVisitor(before);
+        }
+    }
+
+    /** As {@link #withVisitor(String, Runnable)}, for a task that returns a value. */
+    public static <T> T withVisitor(String header, Supplier<T> task) {
+        Visitor before = VISITOR.get();
+        setVisitor(header);
+        try {
+            return task.get();
+        } finally {
+            setVisitor(before);
+        }
+    }
+
+    /**
+     * {@code task}, carrying this thread's visitor to the thread that runs it: for work handed to an executor,
+     * {@code executor.submit(Observa.carryVisitor(() -> sendReminder(id)))}.
+     */
+    public static Runnable carryVisitor(Runnable task) {
+        Visitor visitor = VISITOR.get();
+        if (visitor == null || task == null) {
+            return task;
+        }
+        return () -> {
+            Visitor before = VISITOR.get();
+            VISITOR.set(visitor);
+            try {
+                task.run();
+            } finally {
+                setVisitor(before);
+            }
+        };
     }
 
     /** Within the per-minute limit; past it the error is counted as dropped. */
@@ -590,11 +678,44 @@ public final class Observa implements AutoCloseable {
                     + (better != null ? "e.g. \"" + better + "\"" : "at least two words, like booking.confirmed"));
             return;
         }
-        if (blank(e.userId) && blank(e.anonymousId)) {
+        String userId = e.userId;
+        String anonymousId = e.anonymousId;
+        String sessionId = e.sessionId;
+        // Who it goes to (contract §9): the ids the code names, the user resolver, the request's visitor, and for
+        // errors the service itself. Profile events ($identify, $profile.*, $consent.update) only ever take the code's
+        // ids: a header must never link a visitor to a user or change a profile.
+        if (!e.type.startsWith("$") || e.type.equals("$error")) {
+            if (blank(userId) && blank(anonymousId) && userResolver != null) {
+                try {
+                    userId = userResolver.get();
+                } catch (RuntimeException ex) {
+                    log.log(Level.FINE, "Observa: the user resolver failed", ex);
+                }
+            }
+            Visitor visitor = VISITOR.get();
+            if (visitor != null) {
+                if (blank(anonymousId)) {
+                    anonymousId = visitor.anonymousId();
+                }
+                if (blank(sessionId)) {
+                    sessionId = visitor.sessionId();
+                }
+            }
+            if (e.type.equals("$error") && blank(userId) && blank(anonymousId)) {
+                anonymousId = "service:" + (service == null ? "java" : service);
+            }
+        } else if (blank(sessionId) && !blank(anonymousId)) {
+            // A sign-in that names the request's own visitor (identify(user, visitor's id, …)) is part of its visit.
+            Visitor visitor = VISITOR.get();
+            if (visitor != null && anonymousId.equals(visitor.anonymousId())) {
+                sessionId = visitor.sessionId();
+            }
+        }
+        if (blank(userId) && blank(anonymousId)) {
             reject("person", "\"" + e.type + "\" names no person: pass the user id (or Event.anonymous(…) with the browser's visitor id)");
             return;
         }
-        String json = write(e);
+        String json = write(e, userId, anonymousId, sessionId);
         if (json.getBytes(StandardCharsets.UTF_8).length > MAX_EVENT_BYTES) {
             reject("size", "\"" + e.type + "\" is larger than 32 KB once written: send ids and the values you need, not whole documents");
             return;
@@ -618,13 +739,13 @@ public final class Observa implements AutoCloseable {
         }
     }
 
-    private String write(Event e) {
+    private String write(Event e, String userId, String anonymousId, String sessionId) {
         Map<String, Object> subject = new LinkedHashMap<>();
-        if (!blank(e.userId)) {
-            subject.put("userId", e.userId.trim());
+        if (!blank(userId)) {
+            subject.put("userId", userId.trim());
         }
-        if (!blank(e.anonymousId)) {
-            subject.put("anonymousId", e.anonymousId.trim());
+        if (!blank(anonymousId)) {
+            subject.put("anonymousId", anonymousId.trim());
         }
         Instant at = e.occurredAt != null ? e.occurredAt : Instant.ofEpochMilli(clock.millis());
         StringBuilder out = new StringBuilder(256)
@@ -634,8 +755,8 @@ public final class Observa implements AutoCloseable {
         if (!blank(e.platform)) {
             out.append(",\"platform\":").append(Json.write(e.platform.trim().toUpperCase(java.util.Locale.ROOT)));
         }
-        if (!blank(e.sessionId)) {
-            out.append(",\"sessionId\":").append(Json.write(e.sessionId.trim()));
+        if (!blank(sessionId)) {
+            out.append(",\"sessionId\":").append(Json.write(sessionId.trim()));
         }
         out.append(",\"subject\":").append(Json.write(subject))
                 .append(",\"body\":").append(Json.write(e.body));

@@ -219,6 +219,24 @@ observa.consent({ sms: true, email: false }, { text: 'Send me offers by SMS', fo
 Observa keeps every decision with its evidence (time, text, form, page, network, device). The newest decision per
 channel counts; channels you leave out keep their current consent. Withdrawing works the same way with `false`.
 
+### Link your servers' events to the visitor
+
+Add the visitor header to your app's calls to your own API. Your servers' Observa SDKs then record their events and
+errors on the same visitor and visit, and sign-in moves them to the person. The header carries two random ids, never
+the user id.
+
+```ts
+// fetch
+fetch('/api/bookings', { headers: { ...observa.visitorHeaders('/api/bookings'), 'Content-Type': 'application/json' } });
+
+// Angular: an HttpInterceptorFn
+export const observaVisitor: HttpInterceptorFn = (req, next) =>
+  next(req.clone({ setHeaders: observa.visitorHeaders(req.url) }));
+```
+
+If your API is on another origin, list it in `visitorHosts` and allow the `Observa-Visitor` request header in the API's
+CORS settings.
+
 ## 5. Track your own events
 
 Page views and clicks come for free. The events that matter for your business you send yourself:
@@ -310,6 +328,7 @@ Everything you can pass to `observa.init({ … })`:
 | `maxQueueSize` | no | `1000` | Events held in memory while offline or while Observa is unreachable. Beyond this the oldest are dropped. |
 | `sessionTimeoutMs` | no | `1800000` (30 min) | Inactivity after which a new session starts. |
 | `debug` | no | `false` | Log what the SDK does to the browser console, including why the server refused an event. Turn it on in development only. |
+| `visitorHosts` | no | `[]` | Your API's hosts on other origins (`api.example.com`, `*.example.com`) that `visitorHeaders(url)` adds the visitor header for. The page's own origin always gets it. |
 
 For tests and unusual setups only:
 
@@ -328,6 +347,8 @@ For tests and unusual setups only:
 | `observa.page(properties?)` | Record a page view yourself. |
 | `observa.identify(userId, traits?)` | Link this device to a signed-in user. |
 | `observa.reset()` | Forget the user; new anonymous id and session. |
+| `observa.visitorHeaders(url?)` | `{ 'Observa-Visitor': '<anonymousId>;<sessionId>' }` for your own servers, `{}` for other sites. |
+| `observa.visitorHeader()` | The header's value, or `null` before `init`. |
 | `observa.flush()` | Send one batch now. Returns a promise that never rejects. |
 | `observa.stats()` | `{ queued, sent, rejected, dropped }`, for checking and debugging. |
 | `observa.shutdown()` | Stop timers and listeners, and send what is queued. Rarely needed. |

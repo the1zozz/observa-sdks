@@ -19,6 +19,11 @@ export interface ObservaConfig {
   sessionTimeoutMs?: number;
   /** Log SDK diagnostics to the console. Default false. */
   debug?: boolean;
+  /**
+   * Hosts of your own API on other origins that `visitorHeaders(url)` adds the visitor header for, e.g.
+   * `['api.example.com', '*.example.com']`. The page's own origin always gets it; other sites never do.
+   */
+  visitorHosts?: string[];
 
   /** Advanced: replace the network layer (tests, custom proxies). */
   transport?: Transport;

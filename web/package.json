@@ -1,6 +1,6 @@
 {
   "name": "@observa/web",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Observa browser SDK: track page views, clicks and custom events. Never breaks the host app.",
   "type": "module",
   "main": "./dist/index.js",

@@ -5,7 +5,10 @@ import type {
   TrackOptions, Transport,
 } from './types.js';
 
-export const SDK_VERSION = '0.6.0';
+export const SDK_VERSION = '0.7.0';
+
+/** The header that tells your servers who the visitor is (the SDK contract, §9). */
+export const VISITOR_HEADER = 'Observa-Visitor';
 
 /**
  * Dotted lowercase names like `product.viewed`. A leading `$` marks reserved profile events, which may be a single
@@ -34,7 +37,7 @@ const UTM: Record<string, keyof Campaign> = {
 };
 const MAX_TAG_LENGTH = 100;
 
-type Settings = Required<Omit<ObservaConfig, 'transport' | 'storage' | 'now' | 'page'>>;
+type Settings = Required<Omit<ObservaConfig, 'transport' | 'storage' | 'now' | 'page' | 'visitorHosts'>> & { visitorHosts: string[] };
 
 /**
  * Browser event client. Every public method swallows its own errors: tracking must never break the host app.
@@ -76,6 +79,7 @@ export class ObservaClient {
         maxQueueSize: Math.max(config.maxQueueSize ?? 1_000, 1),
         sessionTimeoutMs: config.sessionTimeoutMs ?? 30 * 60_000,
         debug: config.debug ?? false,
+        visitorHosts: (config.visitorHosts ?? []).map((h) => String(h).trim().toLowerCase()).filter(Boolean),
       };
       this.transport = config.transport ?? browserTransport;
       this.storage = config.storage ?? browserStorage();
@@ -171,6 +175,37 @@ export class ObservaClient {
     } catch (e) {
       this.log('pushState failed', e);
       return 'unsupported';
+    }
+  }
+
+  /**
+   * The visitor header's value for a request to your own servers, `<anonymousId>;<sessionId>`, or null before
+   * `init`. Your servers' SDKs read it, so their events and errors land on this visitor and in this visit. It carries
+   * only those two random ids: never the user id.
+   */
+  visitorHeader(): string | null {
+    try {
+      if (!this.settings) return null;
+      return `${this.anonymousId()};${this.touchSession().id}`;
+    } catch (e) {
+      this.log('visitorHeader failed', e);
+      return null;
+    }
+  }
+
+  /**
+   * Headers to add to a request to `url`: `{ 'Observa-Visitor': … }` when `url` is this page's origin (or a relative
+   * path) or a host listed in `visitorHosts`, else `{}`, so other companies' sites never get it.
+   * `fetch(url, { headers: { ...observa.visitorHeaders(url), … } })`.
+   */
+  visitorHeaders(url?: string): Record<string, string> {
+    try {
+      const value = this.visitorHeader();
+      if (!value || (url !== undefined && !this.isOwnServer(url))) return {};
+      return { [VISITOR_HEADER]: value };
+    } catch (e) {
+      this.log('visitorHeaders failed', e);
+      return {};
     }
   }
 
@@ -498,6 +533,22 @@ export class ObservaClient {
   }
 
   // ---- utilities ----
+
+  private isOwnServer(url: string): boolean {
+    const base = this.readPage().href || undefined;
+    let target: URL;
+    try {
+      target = base ? new URL(url, base) : new URL(url);
+    } catch {
+      return false;
+    }
+    if (target.protocol !== 'https:' && target.protocol !== 'http:') return false;
+    if (base && target.origin === new URL(base).origin) return true;
+    const host = target.hostname.toLowerCase();
+    return (this.settings?.visitorHosts ?? []).some((pattern) =>
+      pattern.startsWith('*.') ? host.endsWith(pattern.slice(1)) : host === pattern,
+    );
+  }
 
   private guard(operation: string, fn: () => void): void {
     try {

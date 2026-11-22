@@ -154,6 +154,11 @@ public final class ObservaTesting {
             return text(map(event.get("subject")).get("anonymousId"));
         }
 
+        /** The visit, when the event carries one. */
+        public String sessionId() {
+            return text(event.get("sessionId"));
+        }
+
         public Instant occurredAt() {
             String at = text(event.get("occurredAt"));
             return at == null ? null : Instant.parse(at);

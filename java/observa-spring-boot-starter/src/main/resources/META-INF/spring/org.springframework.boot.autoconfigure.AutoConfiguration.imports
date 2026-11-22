@@ -1,2 +1,3 @@
 com.integralways.observa.spring.ObservaAutoConfiguration
 com.integralways.observa.spring.ObservaErrorsAutoConfiguration
+com.integralways.observa.spring.ObservaVisitorAutoConfiguration

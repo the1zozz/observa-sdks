@@ -4,7 +4,7 @@ What every Observa SDK does, whatever its language. The web SDK (`web`) and the 
 Python, Ruby and the others are written and reviewed against it. When an SDK cannot do something here, its README says
 so. Behaviour that is not in this contract is not promised to customers.
 
-**Version 1 · 2026-11-17.**
+**Version 1 · 2026-11-19** (§9 added).
 
 ## 1. Two kinds of SDK
 
@@ -134,9 +134,58 @@ so an error loop cannot flood the queue.
 
 ## 9. One person across browser and server
 
-Planned. A client SDK can add the header `Observa-Visitor: <anonymousId>;<sessionId>` (and the user id once
-identified) to the application's own requests; a server SDK's web integration reads it and fills `subject` and
-`sessionId` of events and errors recorded while handling that request.
+The web SDK does this from 0.7.0, and the Java SDK and its Spring Boot starter from 0.3.0.
+
+A client SDK tells the application's own servers who the visitor is with one request header:
+
+```
+Observa-Visitor: <anonymousId>;<sessionId>
+```
+
+Only those two random ids: **never the user id**, a name or contact details. A server never trusts the header about
+who someone is, since anyone can send any header.
+
+**Client SDKs:**
+
+- They give the value (`visitorHeader()`), and the headers for a request (`visitorHeaders(url)`).
+- They add it only to the page's own origin and to hosts the app lists as its own (`visitorHosts`), never to other
+  sites.
+- After `reset()`, the value names the new visitor.
+
+**Server SDKs, five rules:**
+
+1. **Read** the header from incoming requests and messages. They may also read the W3C `baggage` entry
+   `observa.visitor` (the `;` raw or written `%3B`). A value is accepted only when well formed: one or two ids, each
+   1 to 128 letters, digits, `-` or `_`. Anything else is ignored, never an error. A setting lets a service ignore it
+   on paths only outsiders call (webhooks).
+2. **Keep** it for the work being done: a thread-local, a context variable, async local storage, `context.Context`.
+3. **Attach** it to `track` and `$error` events made in that work. Who an event goes to is decided in this order,
+   and the first answer wins:
+   1. the user id the code passes;
+   2. the user the server's own sign-in knows (a user resolver);
+   3. the header's visitor, as `anonymousId`;
+   4. for errors only, `service:<name>`.
+
+   The header's session is added as `sessionId` when the event names none, so a signed-in person's server events are
+   also inside their visit.
+4. **Never attach** it to `$identify`, `$profile.set`, `$profile.unset` or `$consent.update`. Linking a visitor to a user
+   is the client's `identify` at sign-in, never a header's.
+5. **Forward** it on outgoing HTTP calls and messages to the system's own services. A setting may limit the hosts.
+
+When the visitor signs in, Observa links the anonymous id to the user, so what every server recorded under it moves to
+the person.
+
+**When no client SDK starts the visit** (a server-rendered site, an app without an Observa SDK), the entry server makes
+the visitor itself:
+
+6. **Make** it, when configured and no header came in, from an id the server already has for the device and the visit
+   (its own cookie, a header the app sends). The ids are one-way hashes of those values: `v` and `s` followed by the
+   first 32 hex digits of SHA-256 of `observa.visitor\n<value>` and `observa.session\n<value>`. So the same value
+   gives the same visitor in every language, and the value itself never leaves the server. Rules 2, 3 and 5 then apply
+   unchanged.
+7. **Link** it only by an explicit `identify(userId, anonymousId, traits)` at sign-in, where the code names the
+   visitor's id. When that id is the work's own visitor, the event takes its session, so the sign-in is inside the visit.
+   Rule 4 still holds: a visitor is never taken implicitly. An SDK never sets a cookie of its own.
 
 ## 10. Configuration
 

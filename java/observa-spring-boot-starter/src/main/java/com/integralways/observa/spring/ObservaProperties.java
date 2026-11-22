@@ -44,6 +44,81 @@ public class ObservaProperties {
     /** Errors: ERROR logs, exceptions and failed requests, sent as $error events. */
     private final Errors errors = new Errors();
 
+    /** The browser's visitor, sent by the web SDK in the Observa-Visitor header (the SDK contract, §9). */
+    private final Visitor visitor = new Visitor();
+
+    public static class Visitor {
+
+        /** Read the Observa-Visitor header (or observa.visitor in baggage) of each request and forward it on calls. */
+        private boolean enabled = true;
+
+        /**
+         * Paths where the header is ignored, because only outsiders call them, e.g. /webhooks/**. {@code *} matches
+         * within one path segment, {@code **} any number of them.
+         */
+        private java.util.List<String> ignorePaths = new java.util.ArrayList<>();
+
+        /**
+         * Hosts that outgoing calls forward the header to: your own services, e.g. billing, *.internal.example.com.
+         * Empty (the default): every host the application's RestTemplate, RestClient and WebClient beans call.
+         */
+        private java.util.List<String> forwardHosts = new java.util.ArrayList<>();
+
+        /**
+         * Where the server finds the visitor when a request brings no Observa-Visitor header, because the visit did not
+         * start in the web SDK: {@code cookie:<name>} or {@code header:<name>}, e.g. cookie:device_id or
+         * header:X-Device-Id. The value is hashed, never sent. Empty (the default): no visitor without the header.
+         */
+        private String anonymousFrom;
+
+        /** Where the server finds the visit for such a request, e.g. cookie:JSESSIONID; hashed like the visitor. */
+        private String sessionFrom;
+
+        public String getAnonymousFrom() {
+            return anonymousFrom;
+        }
+
+        public void setAnonymousFrom(String anonymousFrom) {
+            this.anonymousFrom = anonymousFrom;
+        }
+
+        public String getSessionFrom() {
+            return sessionFrom;
+        }
+
+        public void setSessionFrom(String sessionFrom) {
+            this.sessionFrom = sessionFrom;
+        }
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public java.util.List<String> getIgnorePaths() {
+            return ignorePaths;
+        }
+
+        public void setIgnorePaths(java.util.List<String> ignorePaths) {
+            this.ignorePaths = ignorePaths == null ? new java.util.ArrayList<>() : ignorePaths;
+        }
+
+        public java.util.List<String> getForwardHosts() {
+            return forwardHosts;
+        }
+
+        public void setForwardHosts(java.util.List<String> forwardHosts) {
+            this.forwardHosts = forwardHosts == null ? new java.util.ArrayList<>() : forwardHosts;
+        }
+    }
+
+    public Visitor getVisitor() {
+        return visitor;
+    }
+
     public static class Errors {
 
         /** Send ERROR logs and server errors of web requests to Observa. */
