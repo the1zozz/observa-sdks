@@ -4,7 +4,7 @@ What every Observa SDK does, whatever its language. The web SDK (`web`) and the 
 Python, Ruby and the others are written and reviewed against it. When an SDK cannot do something here, its README says
 so. Behaviour that is not in this contract is not promised to customers.
 
-**Version 1 · 2026-11-19** (§9 added).
+**Version 1 · 2026-11-22** (§9 added; §5: page exit within the browser's limit).
 
 ## 1. Two kinds of SDK
 
@@ -83,7 +83,9 @@ named; an event is at most 32 KB once written. An invalid event is dropped and c
   servers, 5 s in browsers), whichever comes first.
 - Keep a request under **512 KB**: if adding an event would pass it, send what is there and start a new batch.
 - One request at a time per SDK instance, so events of a source keep their order.
-- Browsers: when the page is hidden or closed, send what is left with `sendBeacon`.
+- Browsers: when the page is hidden or closed, send what is left with `sendBeacon`. Browsers allow about 64 KB in all
+  for what a closing page sends, so the beacons stay under that together. What doesn't fit is saved in the browser's
+  storage (bounded) and sent first by the next page of the same site, with the same ids, so nothing is stored twice.
 
 ## 6. Answers and retries
 

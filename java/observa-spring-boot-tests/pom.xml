@@ -6,7 +6,7 @@
     <parent>
         <groupId>com.github.the1zozz.observa-sdks</groupId>
         <artifactId>observa-java-sdks</artifactId>
-        <version>0.3.0-SNAPSHOT</version>
+        <version>0.4.0-SNAPSHOT</version>
     </parent>
 
     <!-- Not published. Runs the starter's own tests against the built starter jar on Spring Boot 3.5 (Java 17-20) or 4.1

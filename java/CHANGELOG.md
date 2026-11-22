@@ -3,7 +3,7 @@
 The Java SDK (`observa-java`) and the Spring Boot starter (`observa-spring-boot-starter`) are released together, with
 the same version. Each version is published once, from a tag named after the version (`0.2.0`).
 
-## 0.3.0 · not released yet
+## 0.3.0 · 22 November 2026
 
 One person across browser and server (the SDK contract, §9).
 

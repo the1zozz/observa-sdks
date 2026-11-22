@@ -107,6 +107,8 @@ export interface TransportResponse {
   status: number;
   /** Response body, when there is one. */
   body?: string;
+  /** The `Retry-After` header in seconds, when the server sent one (honoured on 429 and 503). */
+  retryAfter?: number;
 }
 
 /** Must not throw. */
@@ -127,8 +129,11 @@ export interface ObservaStats {
   queued: number;
   /** Accepted by the server (including duplicates of events it already had). */
   sent: number;
-  /** Refused by the server one by one; `debug: true` logs why. */
+  /** Refused: invalid before sending (type, size, data that can't be written), or refused by the server, one by one
+   * or as a whole batch. `debug: true` logs why. Never resent. */
   rejected: number;
-  /** Never delivered: invalid before sending, queue overflow, or the whole request refused. */
+  /** Lost because the queue was full: the oldest go first. */
   dropped: number;
+  /** How many times a batch waited to be tried again (network down, 408, 429, 5xx). */
+  retried: number;
 }

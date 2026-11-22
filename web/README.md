@@ -64,15 +64,15 @@ The SDK is not on the public npm registry yet. Install it from its file on the
 [GitHub release](https://github.com/the1zozz/observa-sdks/releases):
 
 ```sh
-npm install https://github.com/the1zozz/observa-sdks/releases/download/0.1.0/observa-web-0.6.0.tgz
+npm install https://github.com/the1zozz/observa-sdks/releases/download/0.3.0/observa-web-0.7.0.tgz
 ```
 
 To build it yourself from this repository: `cd web && npm install && npm pack`, then
-`npm install <path>/web/observa-web-0.6.0.tgz` in your app.
+`npm install <path>/web/observa-web-0.7.0.tgz` in your app.
 
-It has no dependencies, is about 6 KB gzipped, and ships as an ES module with TypeScript types.
+It has no dependencies, is about 7 KB gzipped, and ships as an ES module with TypeScript types.
 
-For a page with no build tool, see [Plain HTML](#plain-html-no-build-tool).
+For a page with no build tool, one `<script>` tag is enough: see [Plain HTML](#plain-html-no-build-tool).
 
 ---
 
@@ -170,18 +170,31 @@ createApp(App).mount('#app');
 
 ### Plain HTML (no build tool)
 
-Copy the SDK's `dist` folder into your site, for example as `/vendor/observa/`, then:
+One tag in the page's `<head>`. It starts by itself:
 
 ```html
-<script type="module">
-  import { observa } from '/vendor/observa/index.js';
+<script src="https://cdn.jsdelivr.net/gh/the1zozz/observa-sdks@0.3.0/web/browser/observa.js"
+        data-key="pk_prod_…" data-endpoint="https://observa.yourcompany.com"></script>
+```
 
-  observa.init({ key: 'pk_prod_…', endpoint: 'https://observa.yourcompany.com' });
-  window.observa = observa; // optional: lets inline scripts call observa.track(…)
+Then, from any script on the page:
+
+```html
+<button onclick="observa.track('booking.requested', { room: 'sea-view' })">Request a room</button>
+<script>
+  // after sign-in
+  observa.identify('1042');
 </script>
 ```
 
-A single-file `<script src>` build for CDNs and tag managers is planned but not available yet.
+- **The version is in the address** (`@0.3.0`), so the file never changes under you. To update, change the number.
+- **Settings as attributes:** `data-debug="true"`, `data-auto-page-views="false"`, `data-auto-clicks="false"`, and
+  `data-visitor-hosts="api.example.com, *.internal.example.com"`.
+- **To start it yourself,** leave out `data-key` and call `observa.init({ key, endpoint, … })`. Everything the npm
+  package exports is on `window.Observa`, and the page's client is `window.observa`.
+- **Tag managers** (Google Tag Manager and others) take the same tag in a custom HTML tag.
+- **Your own copy:** the file is `browser/observa.js` in the npm package and on the GitHub release. Serve it from
+  your own site if your security policy allows scripts only from it.
 
 ---
 
@@ -262,7 +275,7 @@ observa.track('order.created', { orderId: 'O-1042', total: 1800 }, { attributes:
 - not valid: `Order Created`, `orderCreated`, `order`, `order-created`
 - names starting with `$` are reserved for Observa (`$identify`)
 
-An invalid name is dropped in the browser, is counted in `observa.stats().dropped`, and is explained in the console when `debug` is on.
+An invalid name is refused in the browser, is counted in `observa.stats().rejected`, and is explained in the console when `debug` is on.
 
 **Good practice:**
 
@@ -350,7 +363,7 @@ For tests and unusual setups only:
 | `observa.visitorHeaders(url?)` | `{ 'Observa-Visitor': '<anonymousId>;<sessionId>' }` for your own servers, `{}` for other sites. |
 | `observa.visitorHeader()` | The header's value, or `null` before `init`. |
 | `observa.flush()` | Send one batch now. Returns a promise that never rejects. |
-| `observa.stats()` | `{ queued, sent, rejected, dropped }`, for checking and debugging. |
+| `observa.stats()` | `{ queued, sent, rejected, dropped, retried }`, for checking and debugging: see [Check it works](#check-it-works). |
 | `observa.shutdown()` | Stop timers and listeners, and send what is queued. Rarely needed. |
 
 No method ever throws: tracking must never break your app.
@@ -379,7 +392,15 @@ No method ever throws: tracking must never break your app.
 2. **Console:** `[observa]` lines explain anything dropped, refused or retried.
 3. **Network tab:** filter by `events`. Every 5 seconds there is a `POST …/ingest/v1/client/events` answered with **202** and a body like `{"accepted":3,"rejected":0,"errors":[]}`.
 4. **Portal:** open **Sources → your source**. Your events appear under **Live events** within a few seconds. Click one to see its body.
-5. At any time, run `observa.stats()` in the console, for example `{ queued: 0, sent: 42, rejected: 0, dropped: 0 }`. The SDK is in the page's code, so for this, expose it first: `window.observa = observa`.
+5. At any time, run `observa.stats()` in the console, for example `{ queued: 0, sent: 42, rejected: 0, dropped: 0, retried: 0 }`. With npm, the SDK is in the page's code, so expose it first: `window.observa = observa`. The script tag does that for you.
+
+| Counter | Counts |
+|---|---|
+| `queued` | Events waiting to be sent |
+| `sent` | Events Observa accepted |
+| `rejected` | Events refused and never resent: a bad name, over 32 KB, data that can't be written, or refused by Observa |
+| `dropped` | Events lost because the queue was full while Observa could not be reached: the oldest go first |
+| `retried` | Times a batch waited to be tried again: no network, 408, 429 or 5xx |
 
 ---
 
@@ -388,11 +409,13 @@ No method ever throws: tracking must never break your app.
 | What you see | Why | Fix |
 |---|---|---|
 | No requests at all | `init` was never called, or it threw because `key` or `endpoint` is missing | Check the init code runs in the browser. With `debug: true`, the console says `init failed`. |
-| **401** `OBS-ING-4011` | Unknown or revoked key, or a typo | Copy the key again from the portal, or create a new one. |
-| **403** `OBS-ING-4031` | The page's address is not in the key's allowed sites | Add the exact address (scheme, host, port) to a key for this source. |
+| `[observa] a secret key (sk_…) must never be in a web page` | The page has the server's key | Use the source's publishable key (`pk_…`). Rotate the secret key if the page was published: anyone could have read it. |
+| **401** `OBS-ING-4011` | Unknown or revoked key, or a typo | Copy the key again from the portal, or create a new one. The console says so once, even without `debug`. |
+| **403** `OBS-ING-4031` | The page's address is not in the key's allowed sites | Add the exact address (scheme, host, port) to a key for this source. The console says so once. |
 | **429** `OBS-ING-4291` | Over the rate limit | Normal during short bursts; the SDK retries by itself. If it persists, raise `flushIntervalMs` so batches are fewer, or ask for a higher limit. |
 | **202** but `rejected` > 0 | Some events were refused one by one, for example a bad name | With `debug: true`, the console names each event and the reason. |
-| `dropped` grows | Invalid event name, an event over 32 KB, or the queue overflowed while offline | Fix the name or size; the console explains which. |
+| `rejected` grows | An invalid event name, an event over 32 KB, or Observa refused the events | Fix the name or size; with `debug: true` the console explains which. |
+| `dropped` grows | The queue filled up while Observa could not be reached | Check the network tab for failing requests. Raise `maxQueueSize` only if the app often runs offline. |
 | Events show the wrong source | The app uses another app's key | Each app and environment needs its own source and key. |
 | Page views missing on route changes | The router changes the page without the browser History API | Set `autoPageViews: false` and call `observa.page()` in your router's navigation hook. |
 
@@ -421,7 +444,7 @@ The request is a plain `text/plain` POST, so browsers send no CORS preflight; yo
       "page": { "path": "/checkout", "title": "Checkout" },
       "locale": "ar-EG", "timezone": "Africa/Cairo",
       "screen": { "width": 1440, "height": 900 },
-      "library": { "name": "@observa/web", "version": "0.3.0" }
+      "library": { "name": "@observa/web", "version": "0.7.0" }
     }
   }]
 }
@@ -431,11 +454,22 @@ The request is a plain `text/plain` POST, so browsers send no CORS preflight; yo
 
 ### Guarantees
 
-- **Never breaks your app:** every call catches its own errors.
+Every behaviour below is covered by the SDK's tests (the [SDK contract](../CONTRACT.md), §3 to §7).
+
+- **Never breaks your app:** every call catches its own errors. After `shutdown()` calls are ignored.
+- **Refuses a secret key:** with an `sk_…` key the SDK stays off and says so in the console.
 - **Bounded memory:** at most `maxQueueSize` events; the oldest are dropped and counted.
-- **Batching:** sends every `flushIntervalMs` or every `maxBatchSize` events. When the page is hidden or closed, it sends what is left with `sendBeacon`.
-- **Retries** with exponential backoff (1 s up to 60 s) on network errors, 408, 429 and 5xx. Other 4xx answers drop the batch, because resending cannot fix them.
-- **Idempotent:** a retried event is stored once.
+- **Batching:** sends every `flushIntervalMs`, or as soon as `maxBatchSize` events are queued. Each request stays
+  under 512 KB, one request at a time, so events keep their order. `flush()` sends everything queued.
+- **Page exit:** when the page is hidden or closed, what is queued goes with `sendBeacon`. Browsers allow about 64 KB
+  in all for this, so what doesn't fit is kept in the browser's storage (at most 256 KB). The next page of the same
+  site sends it first.
+- **Retries** on network errors, 408, 429 and 5xx: 1 s doubling to 60 s, plus up to 20 % random jitter. On 429 and
+  503 it waits at least the server's `Retry-After`. A batch Observa finds too large (413) is sent again in halves.
+  Other 4xx answers count the batch as rejected, because resending cannot fix them. A refused key (401, 403) is shown
+  once in the console.
+- **Idempotent:** every event has its own id, kept through retries and page exits, so an event that arrives twice is
+  stored once.
 
 ### Privacy
 

@@ -39,7 +39,7 @@ Maven: add JitPack once, then the dependency:
 <dependency>
   <groupId>com.github.the1zozz.observa-sdks</groupId>
   <artifactId>observa-java</artifactId>
-  <version>0.2.0</version>
+  <version>0.3.0</version>
 </dependency>
 ```
 
@@ -51,13 +51,13 @@ repositories {
     maven("https://jitpack.io")
 }
 dependencies {
-    implementation("com.github.the1zozz.observa-sdks:observa-java:0.2.0")
+    implementation("com.github.the1zozz.observa-sdks:observa-java:0.3.0")
 }
 ```
 
 The Java code is in the package `com.integralways.observa.sdk`. Each version's jars are also attached to its
 [GitHub release](https://github.com/the1zozz/observa-sdks/releases); `observa-java` needs no other library, so the jar
-alone is enough. To work on the SDK itself: `mvn -f java install` puts `0.3.0-SNAPSHOT` in your local Maven repository.
+alone is enough. To work on the SDK itself: `mvn -f java install` puts `0.4.0-SNAPSHOT` in your local Maven repository.
 
 What changed in each version: [CHANGELOG.md](CHANGELOG.md).
 
@@ -299,7 +299,7 @@ that up with their JUL bridges, and Spring Boot does it for you.
 
 | Level | When |
 |---|---|
-| `INFO` | At start: `Observa 0.2.0: sending events to https://… with the key sk_prod_…wxyz`. After the first accepted batch: `Observa: connected` |
+| `INFO` | At start: `Observa 0.3.0: sending events to https://… with the key sk_prod_…wxyz`. After the first accepted batch: `Observa: connected` |
 | `WARNING` | The first mistake of each kind, with the fix, e.g. `"Order Created" is not an event type: use a dotted lowercase name, e.g. "order.created"`. Each kind is shown once; the next ones go to debug level. Also: a batch refused, or events lost at shutdown |
 | `SEVERE` | The SDK is off (no key, wrong key or no endpoint), or Observa refused the key |
 | `FINE` | Every detail. Logged at `INFO` with `debug(true)` |
