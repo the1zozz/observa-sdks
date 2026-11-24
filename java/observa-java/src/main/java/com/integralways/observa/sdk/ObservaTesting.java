@@ -182,6 +182,16 @@ public final class ObservaTesting {
             return copy(event.get("attributes"));
         }
 
+        /** The request it belongs to across services (contract §9, rules 8 and 9), when it was tracked while handling one. */
+        public String traceId() {
+            return text(map(event.get("context")).get("traceId"));
+        }
+
+        /** The application that sent it ({@code service} in the builder, or spring.application.name), or null. */
+        public String service() {
+            return text(map(event.get("context")).get("service"));
+        }
+
         @Override
         public String toString() {
             return type() + "(user " + userId() + ", " + properties() + ")";

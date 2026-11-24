@@ -74,6 +74,21 @@ public class ObservaProperties {
         /** Where the server finds the visit for such a request, e.g. cookie:JSESSIONID; hashed like the visitor. */
         private String sessionFrom;
 
+        /**
+         * Give every request a trace id (the incoming W3C traceparent's, or a new one), add it to the request's events
+         * and errors, and forward it as traceparent on calls to the forward hosts, so one request is one story across
+         * services, even with no visitor.
+         */
+        private boolean trace = true;
+
+        public boolean isTrace() {
+            return trace;
+        }
+
+        public void setTrace(boolean trace) {
+            this.trace = trace;
+        }
+
         public String getAnonymousFrom() {
             return anonymousFrom;
         }

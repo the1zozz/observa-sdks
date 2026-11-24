@@ -128,6 +128,10 @@ reads it on every request. Nothing to write:
   `FeignForwarding` interceptor to every client). A client you build in code with `new` gets it by adding the
   `ObservaVisitorInterceptor` bean to it, or the `FeignForwarding` bean for `Feign.builder()`.
   With a load balancer, `forward-hosts` matches the service's name (`http://payments/…` → `payments`).
+- **One request across services:** every request gets a trace id, the incoming W3C `traceparent`'s or a new one.
+  Its events and errors carry it, with the application's name, and the calls above forward it as `traceparent`.
+  In Observa, an event's or an error's request then shows everything that happened in it, in every service, even
+  when nobody was signed in and no visitor was known.
 - **Systems that use OpenTelemetry** can send it as `observa.visitor` in the `baggage` header instead.
 - **CORS:** if your web app calls the API from another origin, allow the `Observa-Visitor` request header in your CORS
   settings.
@@ -139,6 +143,7 @@ reads it on every request. Nothing to write:
 | `observa.visitor.forward-hosts` | every host | Only these hosts get the header, e.g. `billing,*.internal.example.com` |
 | `observa.visitor.anonymous-from` | none | Without the web SDK: where the server finds the visitor, `cookie:<name>` or `header:<name>` |
 | `observa.visitor.session-from` | none | Without the web SDK: where it finds the visit, e.g. `cookie:JSESSIONID` |
+| `observa.visitor.trace` | `true` | `false`: requests get no trace id and calls forward no `traceparent` |
 
 ### Without the web SDK
 

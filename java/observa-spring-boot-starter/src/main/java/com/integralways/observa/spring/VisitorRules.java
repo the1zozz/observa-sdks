@@ -6,6 +6,7 @@ import java.util.Locale;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 
+import com.integralways.observa.sdk.Observa;
 import com.integralways.observa.sdk.Visitor;
 
 /**
@@ -18,6 +19,7 @@ final class VisitorRules {
     private final List<Pattern> hosts = new ArrayList<>();
     private final Source anonymousFrom;
     private final Source sessionFrom;
+    private final boolean trace;
 
     VisitorRules(ObservaProperties.Visitor settings) {
         for (String path : settings.getIgnorePaths()) {
@@ -32,6 +34,7 @@ final class VisitorRules {
         }
         anonymousFrom = Source.of("observa.visitor.anonymous-from", settings.getAnonymousFrom());
         sessionFrom = Source.of("observa.visitor.session-from", settings.getSessionFrom());
+        trace = settings.isTrace();
         if (anonymousFrom == null && sessionFrom != null) {
             throw new IllegalArgumentException("observa.visitor.session-from needs observa.visitor.anonymous-from: "
                     + "a visit belongs to a visitor");
@@ -89,6 +92,20 @@ final class VisitorRules {
                     sessionFrom == null ? null : sessionFrom.in(header, cookie));
         }
         return visitor;
+    }
+
+    /** Whether each request gets a trace id that its events carry and its calls forward (observa.visitor.trace). */
+    boolean traces() {
+        return trace;
+    }
+
+    /** The trace id for an incoming request: its traceparent's, or a new one; null when tracing is off. */
+    String traceOf(String traceparent) {
+        if (!trace) {
+            return null;
+        }
+        String id = Observa.traceIdOf(traceparent);
+        return id != null ? id : Observa.newTraceId();
     }
 
     /** Whether a call to {@code host} gets the header: any host when none are listed. */
