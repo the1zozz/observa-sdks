@@ -98,6 +98,18 @@ class ObservaVisitorTest {
         String echo(@RequestHeader(value = Visitor.HEADER, required = false) String visitor) {
             return visitor == null ? "none" : visitor;
         }
+
+        /** Tracks an event, then calls another service: answers the trace id of this request and the forwarded traceparent. */
+        @GetMapping("/bookings/trace")
+        String trace() {
+            observa.track("42", "booking.traced");
+            return Observa.currentTraceId() + " " + rest.getForObject(base + "/echo-trace", String.class);
+        }
+
+        @GetMapping("/echo-trace")
+        String echoTrace(@RequestHeader(value = Observa.TRACEPARENT, required = false) String traceparent) {
+            return traceparent == null ? "none" : traceparent;
+        }
     }
 
     @Configuration
@@ -332,6 +344,52 @@ class ObservaVisitorTest {
             return null;
         });
         assertThat(payments.headers().get(Visitor.HEADER)).as("a load-balanced service name").containsExactly(HEADER);
+    }
+
+    static final String TRACE = "4bf92f3577b34da6a3ce929d0e0e4736";
+
+    @Test
+    void aRequestsTraceComesFromItsTraceparentAndGoesToItsEventsAndCalls() throws Exception {
+        start();
+        String answer = get("/bookings/trace", null, null, Observa.TRACEPARENT, "00-" + TRACE + "-00f067aa0ba902b7-01");
+        assertThat(answer).startsWith("200 " + TRACE + " 00-" + TRACE + "-").endsWith("-01");
+        assertThat(answer).doesNotContain("00f067aa0ba902b7").as("a new span for the call, the same trace");
+        assertThat(events("booking.traced", 1).get(0)).contains("\"traceId\":\"" + TRACE + "\"", "\"service\":\"bookings\"");
+    }
+
+    @Test
+    void aRequestWithoutTraceparentGetsANewTraceSharedWithItsCalls() throws Exception {
+        start();
+        String[] parts = get("/bookings/trace", null, null).split(" ");
+        String trace = parts[1];
+        assertThat(trace).matches("[0-9a-f]{32}");
+        assertThat(parts[2]).startsWith("00-" + trace + "-");
+        assertThat(get("/bookings/trace", null, null)).as("each request its own").doesNotContain(trace);
+        get("/bookings/fail", null, null);
+        assertThat(events("$error", 1).get(0)).as("an error with no visitor still has its request")
+                .contains("\"anonymousId\":\"service:bookings\"").containsPattern("\"traceId\":\"[0-9a-f]{32}\"");
+    }
+
+    @Test
+    void tracingCanBeTurnedOff() throws Exception {
+        start("observa.visitor.trace=false");
+        assertThat(get("/bookings/trace", null, null, Observa.TRACEPARENT, "00-" + TRACE + "-00f067aa0ba902b7-01"))
+                .isEqualTo("200 null none");
+        assertThat(events("booking.traced", 1).get(0)).doesNotContain("traceId");
+    }
+
+    @Test
+    void feignForwardsTheTraceToo() throws Exception {
+        start();
+        feign.RequestTemplate call = new feign.RequestTemplate();
+        call.feignTarget(new feign.Target.HardCodedTarget<>(Echo.class, "http://payments"));
+        Observa.setTraceId(TRACE);
+        try {
+            context.getBean(FeignForwarding.class).apply(call);
+        } finally {
+            Observa.clearTrace();
+        }
+        assertThat(call.headers().get(Observa.TRACEPARENT)).singleElement().asString().startsWith("00-" + TRACE + "-");
     }
 
     @Test

@@ -47,7 +47,7 @@ public final class Observa implements AutoCloseable {
     static final int MAX_REQUEST_BYTES = 512 * 1024;
     static final int MAX_EVENT_BYTES = 32 * 1024;
     static final Pattern TYPE = Pattern.compile("^(\\$[a-z][a-z0-9_]*(\\.[a-z0-9_]+)*|[a-z][a-z0-9_]*(\\.[a-z0-9_]+)+)$");
-    private static final String LIBRARY = "\"context\":{\"library\":{\"name\":\"observa-java\",\"version\":\"" + VERSION + "\"}}";
+    private static final String LIBRARY = "\"library\":{\"name\":\"observa-java\",\"version\":\"" + VERSION + "\"}";
 
     private static final Logger log = Logger.getLogger(LOGGER);
 
@@ -222,6 +222,12 @@ public final class Observa implements AutoCloseable {
 
     /** The browser's visitor and session for the work on this thread (the SDK contract, §9). */
     private static final ThreadLocal<Visitor> VISITOR = new ThreadLocal<>();
+
+    /** The W3C header that carries the request's trace id from service to service (contract §9, rules 8 and 9). */
+    public static final String TRACEPARENT = "traceparent";
+
+    /** The trace id of the request this thread is handling: shared by every service the request goes through (§9, rules 8 and 9). */
+    private static final ThreadLocal<String> TRACE = new ThreadLocal<>();
 
     /** The application's Observa, for integrations made by other frameworks (log appenders): the latest one built. */
     private static volatile Observa current;
@@ -528,23 +534,102 @@ public final class Observa implements AutoCloseable {
     }
 
     /**
-     * {@code task}, carrying this thread's visitor to the thread that runs it: for work handed to an executor,
-     * {@code executor.submit(Observa.carryVisitor(() -> sendReminder(id)))}.
+     * {@code task}, carrying this thread's visitor and request trace to the thread that runs it: for work handed to an
+     * executor, {@code executor.submit(Observa.carryVisitor(() -> sendReminder(id)))}.
      */
     public static Runnable carryVisitor(Runnable task) {
         Visitor visitor = VISITOR.get();
-        if (visitor == null || task == null) {
+        String trace = TRACE.get();
+        if ((visitor == null && trace == null) || task == null) {
             return task;
         }
         return () -> {
             Visitor before = VISITOR.get();
-            VISITOR.set(visitor);
+            String traceBefore = TRACE.get();
+            setVisitor(visitor);
+            setTraceId(trace);
             try {
                 task.run();
             } finally {
                 setVisitor(before);
+                setTraceId(traceBefore);
             }
         };
+    }
+
+    /**
+     * The trace id in a W3C {@code traceparent} header ({@code 00-<32 hex>-<16 hex>-<2 hex>}), or null when the value is
+     * missing or malformed.
+     */
+    public static String traceIdOf(String traceparent) {
+        if (traceparent == null) {
+            return null;
+        }
+        String[] parts = traceparent.trim().split("-");
+        if (parts.length < 4 || !parts[0].matches("[0-9a-f]{2}") || "ff".equals(parts[0])
+                || !parts[2].matches("[0-9a-f]{16}") || !parts[3].matches("[0-9a-f]{2}")) {
+            return null;
+        }
+        return validTraceId(parts[1]) ? parts[1] : null;
+    }
+
+    /** A new random trace id, for a request that came in without one. */
+    public static String newTraceId() {
+        return randomHex(16);
+    }
+
+    /**
+     * The work on this thread is the request with trace id {@code traceId} (32 lowercase hex digits): until
+     * {@link #clearTrace()}, its events and errors carry it, and calls to your other services forward it. The Spring Boot
+     * starter does this for every request: the incoming {@code traceparent}'s id, or a new one. Null or malformed
+     * clears it.
+     */
+    public static void setTraceId(String traceId) {
+        if (traceId == null || !validTraceId(traceId)) {
+            TRACE.remove();
+        } else {
+            TRACE.set(traceId);
+        }
+    }
+
+    /** The trace id of the request this thread is handling, or null. */
+    public static String currentTraceId() {
+        return TRACE.get();
+    }
+
+    /** Forgets the trace id: the thread's work is no longer part of the request. */
+    public static void clearTrace() {
+        TRACE.remove();
+    }
+
+    /**
+     * The value to send as the {@code traceparent} header when this work calls another of your services (the same trace
+     * id, a new span id), or null when there is no trace: {@code request.header(Observa.TRACEPARENT, Observa.traceparentHeader())}.
+     */
+    public static String traceparentHeader() {
+        String trace = TRACE.get();
+        return trace == null ? null : "00-" + trace + "-" + randomHex(8) + "-01";
+    }
+
+    private static boolean validTraceId(String id) {
+        return id.length() == 32 && id.matches("[0-9a-f]{32}") && !id.equals("00000000000000000000000000000000");
+    }
+
+    /** {@code bytes} random bytes as lowercase hex, never all zeros (W3C: an all-zero id is invalid). */
+    private static String randomHex(int bytes) {
+        ThreadLocalRandom random = ThreadLocalRandom.current();
+        while (true) {
+            StringBuilder out = new StringBuilder(bytes * 2);
+            boolean zero = true;
+            for (int i = 0; i < bytes * 2; i++) {
+                int digit = random.nextInt(16);
+                zero &= digit == 0;
+                out.append(Character.forDigit(digit, 16));
+            }
+            if (!zero) {
+                return out.toString();
+            }
+        }
     }
 
     /** Within the per-minute limit; past it the error is counted as dropped. */
@@ -715,7 +800,7 @@ public final class Observa implements AutoCloseable {
             reject("person", "\"" + e.type + "\" names no person: pass the user id (or Event.anonymous(…) with the browser's visitor id)");
             return;
         }
-        String json = write(e, userId, anonymousId, sessionId);
+        String json = write(e, userId, anonymousId, sessionId, TRACE.get());
         if (json.getBytes(StandardCharsets.UTF_8).length > MAX_EVENT_BYTES) {
             reject("size", "\"" + e.type + "\" is larger than 32 KB once written: send ids and the values you need, not whole documents");
             return;
@@ -739,7 +824,7 @@ public final class Observa implements AutoCloseable {
         }
     }
 
-    private String write(Event e, String userId, String anonymousId, String sessionId) {
+    private String write(Event e, String userId, String anonymousId, String sessionId, String traceId) {
         Map<String, Object> subject = new LinkedHashMap<>();
         if (!blank(userId)) {
             subject.put("userId", userId.trim());
@@ -763,7 +848,14 @@ public final class Observa implements AutoCloseable {
         if (!e.attributes.isEmpty()) {
             out.append(",\"attributes\":").append(Json.write(e.attributes));
         }
-        return out.append(',').append(LIBRARY).append('}').toString();
+        out.append(",\"context\":{").append(LIBRARY);
+        if (traceId != null) {
+            out.append(",\"traceId\":\"").append(traceId).append('"');
+        }
+        if (service != null) {
+            out.append(",\"service\":").append(Json.write(service));
+        }
+        return out.append("}}").toString();
     }
 
     /** Counts a mistake in the caller's event; the first of each kind is a warning that says how to fix it. */

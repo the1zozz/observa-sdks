@@ -22,6 +22,7 @@ class VisitorTest {
     @AfterEach
     void clear() {
         Observa.clearVisitor();
+        Observa.clearTrace();
     }
 
     @Test
@@ -170,6 +171,51 @@ class VisitorTest {
             assertNull(executor.submit(Observa::visitorHeader).get(5, TimeUnit.SECONDS), "and cleaned up after");
         } finally {
             executor.shutdownNow();
+        }
+    }
+
+    static final String TRACE = "4bf92f3577b34da6a3ce929d0e0e4736";
+
+    @Test
+    void theTraceparentsIdIsReadOnlyWhenWellFormed() {
+        assertEquals(TRACE, Observa.traceIdOf("00-" + TRACE + "-00f067aa0ba902b7-01"));
+        assertEquals(TRACE, Observa.traceIdOf(" 01-" + TRACE + "-00f067aa0ba902b7-00-future "), "a later version, read the same way");
+        assertNull(Observa.traceIdOf(null));
+        assertNull(Observa.traceIdOf("00-" + repeat('0', 32) + "-00f067aa0ba902b7-01"), "all zeros is invalid");
+        assertNull(Observa.traceIdOf("00-" + TRACE.toUpperCase() + "-00f067aa0ba902b7-01"), "lowercase only");
+        assertNull(Observa.traceIdOf("ff-" + TRACE + "-00f067aa0ba902b7-01"), "version ff is invalid");
+        assertNull(Observa.traceIdOf("00-" + TRACE + "-01"));
+        String fresh = Observa.newTraceId();
+        assertTrue(fresh.matches("[0-9a-f]{32}"), fresh);
+        assertNotEquals(fresh, Observa.newTraceId());
+    }
+
+    @Test
+    void eventsAndErrorsOfTheRequestCarryItsTraceAndTheService() throws Exception {
+        try (ObservaTesting.Capture capture = ObservaTesting.capture(b -> b.service("bookings"))) {
+            Observa observa = capture.observa();
+            assertNull(Observa.traceparentHeader());
+            Observa.setTraceId(TRACE);
+            assertTrue(Observa.traceparentHeader().matches("00-" + TRACE + "-[0-9a-f]{16}-01"), Observa.traceparentHeader());
+            observa.track("42", "booking.confirmed");
+            observa.error(new IllegalStateException("No room"));
+            ExecutorService executor = Executors.newSingleThreadExecutor();
+            try {
+                executor.submit(Observa.carryVisitor(() -> observa.track("42", "booking.mailed"))).get(5, TimeUnit.SECONDS);
+                assertNull(executor.submit(Observa::currentTraceId).get(5, TimeUnit.SECONDS), "cleaned up after");
+            } finally {
+                executor.shutdownNow();
+            }
+            Observa.setTraceId("not a trace id");
+            assertNull(Observa.currentTraceId(), "a malformed id clears it");
+            observa.track("42", "booking.viewed");
+
+            assertEquals(TRACE, capture.single("booking.confirmed").traceId());
+            assertEquals(TRACE, capture.single("$error").traceId(), "an error with nobody to put it on still has its request");
+            assertEquals("service:bookings", capture.single("$error").anonymousId());
+            assertEquals(TRACE, capture.single("booking.mailed").traceId(), "carried to the executor");
+            assertNull(capture.single("booking.viewed").traceId());
+            assertEquals("bookings", capture.single("booking.viewed").service());
         }
     }
 

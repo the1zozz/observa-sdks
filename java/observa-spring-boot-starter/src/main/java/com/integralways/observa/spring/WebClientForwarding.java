@@ -21,13 +21,25 @@ final class WebClientForwarding implements BeanPostProcessor {
 
     WebClientForwarding(VisitorRules rules) {
         this.filter = (request, next) -> {
-            String header = Observa.visitorHeader();
             URI url = request.url();
-            if (header == null || request.headers().getFirst(Visitor.HEADER) != null
-                    || !rules.forwardsTo(url == null ? null : url.getHost())) {
+            if (!rules.forwardsTo(url == null ? null : url.getHost())) {
                 return next.exchange(request);
             }
-            return next.exchange(ClientRequest.from(request).header(Visitor.HEADER, header).build());
+            String header = Observa.visitorHeader();
+            String traceparent = Observa.traceparentHeader();
+            boolean addVisitor = header != null && request.headers().getFirst(Visitor.HEADER) == null;
+            boolean addTrace = traceparent != null && request.headers().getFirst(Observa.TRACEPARENT) == null;
+            if (!addVisitor && !addTrace) {
+                return next.exchange(request);
+            }
+            ClientRequest.Builder forwarded = ClientRequest.from(request);
+            if (addVisitor) {
+                forwarded.header(Visitor.HEADER, header);
+            }
+            if (addTrace) {
+                forwarded.header(Observa.TRACEPARENT, traceparent);
+            }
+            return next.exchange(forwarded.build());
         };
     }
 

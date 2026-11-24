@@ -4,7 +4,7 @@ What every Observa SDK does, whatever its language. The web SDK (`web`) and the 
 Python, Ruby and the others are written and reviewed against it. When an SDK cannot do something here, its README says
 so. Behaviour that is not in this contract is not promised to customers.
 
-**Version 1 · 2026-11-22** (§9 added; §5: page exit within the browser's limit).
+**Version 1.1 · 2026-11-24** (§9 rules 8 and 9: one request across services). Version 1 · 2026-11-22: §9 added; §5: page exit within the browser's limit.
 
 ## 1. Two kinds of SDK
 
@@ -188,6 +188,17 @@ the visitor itself:
 7. **Link** it only by an explicit `identify(userId, anonymousId, traits)` at sign-in, where the code names the
    visitor's id. When that id is the work's own visitor, the event takes its session, so the sign-in is inside the visit.
    Rule 4 still holds: a visitor is never taken implicitly. An SDK never sets a cookie of its own.
+
+**One request across services,** with or without a visitor, so the events and errors of one failed request can be
+read together:
+
+8. **Trace** each incoming request: the trace id of a W3C `traceparent` header that came in, else a new random one
+   (32 lowercase hex digits, not all zeros). Attach it to every event and `$error` made in that work as
+   `context.traceId`, with the application's name as `context.service`. Profile events may carry it too: it names a
+   request, not a person.
+9. **Forward** it as `traceparent` (the same trace id, a new span id) on the same calls as the visitor (rule 5), unless
+   the call already has one. A setting may turn tracing off. With OpenTelemetry or Micrometer Tracing in the system, the
+   trace is the same one their spans use whenever the request came in with a `traceparent`.
 
 ## 10. Configuration
 

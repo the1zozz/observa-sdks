@@ -26,10 +26,15 @@ public final class ObservaVisitorInterceptor implements ClientHttpRequestInterce
     @Override
     public ClientHttpResponse intercept(HttpRequest request, byte[] body, ClientHttpRequestExecution execution)
             throws IOException {
-        String header = Observa.visitorHeader();
-        if (header != null && request.getHeaders().getFirst(Visitor.HEADER) == null
-                && rules.forwardsTo(request.getURI().getHost())) {
-            request.getHeaders().set(Visitor.HEADER, header);
+        if (rules.forwardsTo(request.getURI().getHost())) {
+            String header = Observa.visitorHeader();
+            if (header != null && request.getHeaders().getFirst(Visitor.HEADER) == null) {
+                request.getHeaders().set(Visitor.HEADER, header);
+            }
+            String traceparent = Observa.traceparentHeader();
+            if (traceparent != null && request.getHeaders().getFirst(Observa.TRACEPARENT) == null) {
+                request.getHeaders().set(Observa.TRACEPARENT, traceparent);
+            }
         }
         return execution.execute(request, body);
     }

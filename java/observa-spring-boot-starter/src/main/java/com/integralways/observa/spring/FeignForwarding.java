@@ -27,11 +27,17 @@ public final class FeignForwarding implements RequestInterceptor {
 
     @Override
     public void apply(RequestTemplate template) {
-        String header = Observa.visitorHeader();
-        if (header == null || template.headers().containsKey(Visitor.HEADER) || !rules.forwardsTo(host(template))) {
+        if (!rules.forwardsTo(host(template))) {
             return;
         }
-        template.header(Visitor.HEADER, header);
+        String header = Observa.visitorHeader();
+        if (header != null && !template.headers().containsKey(Visitor.HEADER)) {
+            template.header(Visitor.HEADER, header);
+        }
+        String traceparent = Observa.traceparentHeader();
+        if (traceparent != null && !template.headers().containsKey(Observa.TRACEPARENT)) {
+            template.header(Observa.TRACEPARENT, traceparent);
+        }
     }
 
     /** The called host: from the client's target, or from the request's own URL when it names one. */
