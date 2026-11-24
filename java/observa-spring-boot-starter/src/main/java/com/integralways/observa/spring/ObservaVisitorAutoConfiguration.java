@@ -15,7 +15,7 @@ import com.integralways.observa.sdk.Observa;
 /**
  * One person across browser and server (the SDK contract, §9), with nothing to write: each request's
  * {@code Observa-Visitor} header is read, its events and errors carry the visitor and the visit, and the application's
- * RestTemplate, RestClient and WebClient beans forward it to the services they call. Off with
+ * RestTemplate, RestClient and WebClient beans and its OpenFeign clients forward it to the services they call. Off with
  * {@code observa.visitor.enabled=false}.
  */
 @AutoConfiguration(after = ObservaAutoConfiguration.class)
@@ -68,6 +68,16 @@ public class ObservaVisitorAutoConfiguration {
         @Bean
         static VisitorForwarding observaVisitorForwarding(Environment environment) {
             return new VisitorForwarding(new ObservaVisitorInterceptor(rules(environment)));
+        }
+    }
+
+    /** OpenFeign: Spring Cloud OpenFeign applies every RequestInterceptor bean to every Feign client. */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(name = "feign.RequestInterceptor")
+    static class Feign {
+        @Bean
+        FeignForwarding observaFeignForwarding(Environment environment) {
+            return new FeignForwarding(rules(environment));
         }
     }
 

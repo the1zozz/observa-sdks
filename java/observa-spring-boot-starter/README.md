@@ -124,8 +124,10 @@ reads it on every request. Nothing to write:
   - a signed-in user keeps their own id;
   - `identify`, profile and consent events never take the visitor.
 - **Calls to your other services forward it,** through your `RestTemplate`, `RestClient.Builder` and
-  `WebClient.Builder` beans. A client you build in code with `new` gets it by adding the `ObservaVisitorInterceptor`
-  bean to it.
+  `WebClient.Builder` beans, and through your OpenFeign clients (Spring Cloud OpenFeign applies the starter's
+  `FeignForwarding` interceptor to every client). A client you build in code with `new` gets it by adding the
+  `ObservaVisitorInterceptor` bean to it, or the `FeignForwarding` bean for `Feign.builder()`.
+  With a load balancer, `forward-hosts` matches the service's name (`http://payments/…` → `payments`).
 - **Systems that use OpenTelemetry** can send it as `observa.visitor` in the `baggage` header instead.
 - **CORS:** if your web app calls the API from another origin, allow the `Observa-Visitor` request header in your CORS
   settings.

@@ -298,6 +298,42 @@ class ObservaVisitorTest {
         assertThat(seen.get()).as("no visitor, no header").isNull();
     }
 
+    /** A Feign client, as Spring Cloud OpenFeign makes one: every RequestInterceptor bean is applied to it. */
+    interface Echo {
+        @feign.RequestLine("GET /echo")
+        String echo();
+
+        @feign.RequestLine("GET /echo")
+        @feign.Headers(Visitor.HEADER + ": app-own;app-visit")
+        String echoWithOwnHeader();
+    }
+
+    @Test
+    void feignClientsForwardIt() throws Exception {
+        start();
+        Echo echo = feign.Feign.builder().requestInterceptors(context.getBeansOfType(feign.RequestInterceptor.class).values())
+                .target(Echo.class, base);
+        assertThat(Observa.withVisitor(HEADER, echo::echo)).isEqualTo(HEADER);
+        assertThat(echo.echo()).as("no visitor, no header").isEqualTo("none");
+        assertThat(Observa.withVisitor(HEADER, echo::echoWithOwnHeader)).as("the application's own header is kept")
+                .isEqualTo("app-own;app-visit");
+    }
+
+    @Test
+    void feignForwardingKeepsToTheListedHosts() throws Exception {
+        start("observa.visitor.forward-hosts=payments");
+        FeignForwarding forwarding = context.getBean(FeignForwarding.class);
+        Echo local = feign.Feign.builder().requestInterceptor(forwarding).target(Echo.class, base);
+        assertThat(Observa.withVisitor(HEADER, local::echo)).as("localhost is not listed").isEqualTo("none");
+        feign.RequestTemplate payments = new feign.RequestTemplate();
+        payments.feignTarget(new feign.Target.HardCodedTarget<>(Echo.class, "http://payments"));
+        Observa.withVisitor(HEADER, () -> {
+            forwarding.apply(payments);
+            return null;
+        });
+        assertThat(payments.headers().get(Visitor.HEADER)).as("a load-balanced service name").containsExactly(HEADER);
+    }
+
     @Test
     void restClientBuildersForwardIt() throws Exception {
         Class<?> restClient;
