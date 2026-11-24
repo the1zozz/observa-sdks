@@ -275,6 +275,23 @@ Observa.withVisitor(message.header(Visitor.HEADER), () -> handle(message));
 executor.submit(Observa.carryVisitor(() -> sendReminder(bookingId)));
 ```
 
+**One request across services.** Give each incoming request a trace id, from its W3C `traceparent` when it has one,
+and forward it. Every event and error of the request then carries it, with or without a visitor, and Observa shows
+what happened in that request in every service. The Spring Boot starter does all of this by itself:
+
+```java
+String trace = Observa.traceIdOf(request.getHeader(Observa.TRACEPARENT));   // null when none came in
+Observa.setTraceId(trace != null ? trace : Observa.newTraceId());
+try {
+    handle(request);   // its events and errors carry the trace id
+} finally {
+    Observa.clearTrace();
+}
+
+// on calls to your other services
+connection.setRequestProperty(Observa.TRACEPARENT, Observa.traceparentHeader());
+```
+
 **When the visit doesn't start in the web SDK** (a server-rendered site, an app without an Observa SDK), the entry
 service makes the visitor from an id it already has, such as its own cookie or the app's device id. The value is
 hashed, so it never leaves the server:

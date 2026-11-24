@@ -12,6 +12,16 @@ the same version. Each version is published once, from a tag named after the ver
   header the application set itself and follows `observa.visitor.forward-hosts` (with a load balancer, the service's
   name). Nothing to change in applications.
 
+- **One request across services** (OBS-369, contract §9 rules 8 and 9). Every request the starter sees gets a trace
+  id: the incoming W3C `traceparent`'s, or a new one. Its events and errors carry it as `context.traceId`, with the
+  service's name as `context.service`, and `RestTemplate`, `RestClient`, `WebClient` and Feign calls forward it as
+  `traceparent` (unless the call has one). So the events and errors of one request can be read together, even with
+  no visitor. Off with `observa.visitor.trace=false`.
+  - SDK: `Observa.setTraceId`, `currentTraceId`, `clearTrace`, `traceparentHeader`, `traceIdOf`, `newTraceId`;
+    `carryVisitor` carries the trace too.
+  - Every event now names its service in `context.service` when the SDK knows it.
+  - `ObservaTesting`: `CapturedEvent.traceId()` and `service()`.
+
 ## 0.3.0 · 22 November 2026
 
 One person across browser and server (the SDK contract, §9).

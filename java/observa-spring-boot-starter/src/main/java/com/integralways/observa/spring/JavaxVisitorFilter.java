@@ -41,11 +41,14 @@ final class JavaxVisitorFilter implements Filter, Ordered {
         }
         HttpServletRequest request = (HttpServletRequest) req;
         Visitor before = Observa.currentVisitor();
+        String traceBefore = Observa.currentTraceId();
         Observa.setVisitor(rules.read(request.getRequestURI(), request::getHeader, name -> cookie(request, name)));
+        Observa.setTraceId(rules.traceOf(request.getHeader(Observa.TRACEPARENT)));
         try {
             chain.doFilter(req, res);
         } finally {
             Observa.setVisitor(before);
+            Observa.setTraceId(traceBefore);
         }
     }
 
