@@ -3,6 +3,15 @@
 The Java SDK (`observa-java`) and the Spring Boot starter (`observa-spring-boot-starter`) are released together, with
 the same version. Each version is published once, from a tag named after the version (`0.2.0`).
 
+## Unreleased
+
+- **Spring Boot starter: OpenFeign forwards the visitor** (OBS-366). Calls made through OpenFeign carried no
+  `Observa-Visitor` header, so the services behind them did not know the visitor: their `track(null, …)` events were
+  dropped and their errors went to `service:<name>`. With OpenFeign on the classpath the starter now adds a
+  `RequestInterceptor` that Spring Cloud OpenFeign applies to every Feign client. Like the other clients it keeps a
+  header the application set itself and follows `observa.visitor.forward-hosts` (with a load balancer, the service's
+  name). Nothing to change in applications.
+
 ## 0.3.0 · 22 November 2026
 
 One person across browser and server (the SDK contract, §9).
